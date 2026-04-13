@@ -51,7 +51,7 @@ function App() {
     <div className="menu-app__shell">
       <main className="menu-app">
         <header className="menu-app__header">
-          <p className="menu-app__eyebrow">今日の夕飯、まかせて</p>
+          <p className="menu-app__eyebrow">面倒くさがりのあなたに</p>
           <h1 className="menu-app__title">献立提案</h1>
           <p className="menu-app__subtitle">
             <span className="menu-app__subtitle-name">{loginId}</span>
