@@ -1,12 +1,15 @@
 body {
   margin: 0;
-  background: linear-gradient(180deg, rgb(117, 81, 194), rgb(255, 255, 255));
+  background: linear-gradient(165deg, #6b4ba8 0%, #9b7ad4 38%, #f0ebff 72%, #ffffff 100%);
+  background-attachment: fixed;
   display: flex;
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  height: 100vh;
-  width: 100vw;
+  min-height: 100vh;
+  width: 100%;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
+  padding: clamp(1rem, 4vw, 2.5rem) clamp(0.75rem, 3vw, 1.5rem) 2rem;
+  box-sizing: border-box;
 }
 
 main {
