@@ -139,7 +139,7 @@ function App() {
             {isNonFoodRelatedErrorMessage(error) ? (
               <p className="menu-app__error-text">
                 <span className="menu-app__error-non-food">食べ物以外</span>
-                の内容のようです。食材・献立・料理に関連する内容を入力してください。
+                の内容が含まれています。食材・献立・料理に関連する内容を入力してください。
               </p>
             ) : (
               <p className="menu-app__error-text">{error}</p>
