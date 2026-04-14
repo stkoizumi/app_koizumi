@@ -1,4 +1,5 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
+import { suggestMenu as suggestMenuFn } from "../functions/suggest-menu/resource";
 
 /*== STEP 1 ===============================================================
 The section below creates a Todo database table with a "content" field. Try
@@ -10,7 +11,20 @@ const schema = a.schema({
   Todo: a
     .model({
       content: a.string(),
-  }).authorization(allow => [allow.owner()]),
+    })
+    .authorization((allow) => [allow.owner()]),
+
+  SuggestMenuResponse: a.customType({
+    title: a.string(),
+    recipe: a.string(),
+  }),
+
+  suggestMenu: a
+    .query()
+    .arguments({ ingredientText: a.string() })
+    .returns(a.ref("SuggestMenuResponse"))
+    .authorization((allow) => [allow.authenticated()])
+    .handler(a.handler.function(suggestMenuFn)),
 });
 
 export type Schema = ClientSchema<typeof schema>;
