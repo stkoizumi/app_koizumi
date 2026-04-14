@@ -3,6 +3,7 @@ import { useAuthenticator } from "@aws-amplify/ui-react";
 import {
   type MenuSuggestion,
   fetchMenuSuggestions,
+  isNonFoodRelatedErrorMessage,
   parseIngredients,
 } from "./suggestMenu";
 import "./App.css";
@@ -124,11 +125,25 @@ function App() {
         </section>
 
         {error ? (
-          <div className="menu-app__error" role="alert">
+          <div
+            className={
+              isNonFoodRelatedErrorMessage(error)
+                ? "menu-app__error menu-app__error--non-food"
+                : "menu-app__error"
+            }
+            role="alert"
+          >
             <span className="menu-app__error-icon" aria-hidden>
               !
             </span>
-            <p className="menu-app__error-text">{error}</p>
+            {isNonFoodRelatedErrorMessage(error) ? (
+              <p className="menu-app__error-text">
+                <span className="menu-app__error-non-food">食べ物以外</span>
+                の内容のようです。食材・献立・料理に関連する内容を入力してください。
+              </p>
+            ) : (
+              <p className="menu-app__error-text">{error}</p>
+            )}
           </div>
         ) : null}
 

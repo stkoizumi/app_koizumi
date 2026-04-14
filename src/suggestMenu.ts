@@ -9,6 +9,14 @@ export type MenuSuggestion = {
 
 const client = generateClient<Schema>();
 
+/** Lambda が「献立と無関係」と判定したときのメッセージ（この文言が含まれるエラーは UI で区別する） */
+export const NON_FOOD_ERROR_SNIPPET =
+  "食材・献立・料理に関連する内容を入力してください";
+
+export function isNonFoodRelatedErrorMessage(message: string): boolean {
+  return message.includes(NON_FOOD_ERROR_SNIPPET);
+}
+
 export function parseIngredients(text: string): string[] {
   return text
     .split(/[,、\n]+/)

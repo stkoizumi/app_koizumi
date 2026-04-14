@@ -286,6 +286,16 @@
   flex: 1;
 }
 
+.menu-app__error--non-food {
+  border-color: rgba(220, 38, 38, 0.45);
+  background: rgba(254, 226, 226, 0.98);
+}
+
+.menu-app__error-non-food {
+  color: #dc2626;
+  font-weight: 800;
+}
+
 .menu-app__panel--results {
   padding-top: 1.05rem;
 }
