@@ -6,7 +6,22 @@ import type { Schema } from "../../data/resource";
 
 const DEFAULT_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0";
 
+/** モデルが「食べ物・献立と無関係」と判断したときの料理名（Lambda で検知してエラーにする） */
+const NOT_FOOD_TITLE = "__NOT_FOOD__";
+
 const SYSTEM_PROMPT = `あなたはプロの料理研究家です。ユーザーの入力（手持ちの食材や要望の文章）を材料にし、次の条件をすべて満たす献立を「1つだけ」提案してください。
+
+まず入力内容を判断すること:
+- 入力が食材・献立・料理・調理にまったく関係しない場合（例: プログラムコード、計算式、天気や雑談のみ、仕事用の文書のみ、個人情報の羅列のみなど）は、献立を提案してはならない。
+- その場合は次の形式「だけ」を返すこと（料理名の行は一字一句このまま）:
+
+【料理名】
+${NOT_FOOD_TITLE}
+
+【レシピ】
+食材・献立・料理に関連する内容を入力してください。
+
+関係する入力のときだけ、通常どおり献立を1つ提案すること。
 
 条件:
 - 足りない材料はなるべく少なくすること
@@ -16,10 +31,10 @@ const SYSTEM_PROMPT = `あなたはプロの料理研究家です。ユーザー
 出力は次のフォーマットに厳密に従い、前置き・挨拶・解説は書かないこと。
 
 【料理名】
-（料理名のみ1行）
+（料理名のみ1行。献立と無関係な入力のときは必ず ${NOT_FOOD_TITLE} のみ）
 
 【レシピ】
-（材料と手順を読みやすく。分量の目安を含める）`;
+（材料と手順を読みやすく。分量の目安を含める。献立と無関係な入力のときは上記の固定文のみ）`;
 
 function parseMenuResponse(text: string): { title: string; recipe: string } {
   const titleMatch = text.match(/【料理名】\s*([\s\S]*?)(?=【レシピ】|$)/);
@@ -94,5 +109,16 @@ export const handler: Schema["suggestMenu"]["functionHandler"] = async (
     throw new Error("モデルからテキストを取得できませんでした。");
   }
 
-  return parseMenuResponse(text);
+  const menu = parseMenuResponse(text);
+  const titleNorm = menu.title.trim();
+  if (
+    titleNorm === NOT_FOOD_TITLE ||
+    text.includes(NOT_FOOD_TITLE)
+  ) {
+    throw new Error(
+      "食材・献立・料理に関連する内容を入力してください。"
+    );
+  }
+
+  return menu;
 };
