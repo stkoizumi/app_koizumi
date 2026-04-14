@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import {
   type MenuSuggestion,
+  fetchMenuSuggestions,
   parseIngredients,
-  suggestMenuDummy,
 } from "./suggestMenu";
 import "./App.css";
 
@@ -27,8 +27,7 @@ function App() {
     setLoading(true);
     setHasRequested(true);
     try {
-      const items = parseIngredients(ingredientText);
-      const next = await suggestMenuDummy(items);
+      const next = await fetchMenuSuggestions(ingredientText);
       setSuggestions(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : "提案に失敗しました");
@@ -145,7 +144,7 @@ function App() {
               </span>
               <p className="menu-app__empty-title">まだ提案がありません</p>
               <p className="menu-app__empty-body">
-                食材を入力して「献立を提案」を押すと、ここに候補が並びます（いまはデモ表示です）。
+                食材を入力して「献立を提案」を押すと、ここに AI の提案が表示されます。
               </p>
             </div>
           ) : loading && suggestions.length === 0 ? (

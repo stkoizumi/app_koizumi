@@ -1,8 +1,13 @@
+import { generateClient } from "aws-amplify/data";
+import type { Schema } from "../amplify/data/resource";
+
 export type MenuSuggestion = {
   title: string;
   uses: string[];
   note: string;
 };
+
+const client = generateClient<Schema>();
 
 export function parseIngredients(text: string): string[] {
   return text
@@ -11,12 +16,12 @@ export function parseIngredients(text: string): string[] {
     .filter(Boolean);
 }
 
-/** デモ用。後で AI / Lambda 呼び出しに置き換える。 */
-export async function suggestMenuDummy(
-  ingredients: string[]
+/** AppSync の suggestMenu クエリ（Lambda → Bedrock）を呼び出す。 */
+export async function fetchMenuSuggestions(
+  ingredientText: string
 ): Promise<MenuSuggestion[]> {
-  await new Promise((r) => setTimeout(r, 450));
-  if (ingredients.length === 0) {
+  const text = ingredientText.trim();
+  if (!text) {
     return [
       {
         title: "まずは食材を入れよう",
@@ -25,22 +30,26 @@ export async function suggestMenuDummy(
       },
     ];
   }
-  const primary = ingredients.slice(0, 3);
+
+  const { data, errors } = await client.queries.suggestMenu({
+    ingredientText: text,
+  });
+
+  if (errors?.length) {
+    const msg = errors.map((e) => e.message).join(" ");
+    throw new Error(msg || "献立の取得に失敗しました");
+  }
+
+  if (!data?.title && !data?.recipe) {
+    throw new Error("献立データを取得できませんでした");
+  }
+
+  const uses = parseIngredients(text);
   return [
     {
-      title: `${primary[0]}を使ったあえもの`,
-      uses: primary,
-      note: "（デモ）後で AI がレシピを提案します。",
-    },
-    {
-      title: "具だくさんスープ",
-      uses: ingredients,
-      note: "（デモ）煮込み時間は具材の大きさで調整。",
-    },
-    {
-      title: "フライパンひとつで仕上げる一品",
-      uses: ingredients.slice(0, 2),
-      note: "（デモ）調味料はお好みで。",
+      title: data.title ?? "献立",
+      uses,
+      note: data.recipe ?? "",
     },
   ];
 }
