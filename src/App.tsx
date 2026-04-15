@@ -1,15 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import {
   type MenuSuggestion,
   fetchMenuSuggestions,
   isNonFoodRelatedErrorMessage,
-  parseIngredients,
   parseSuggestedRecipe,
 } from "./suggestMenu";
 import "./App.css";
-
-const CHIP_PREVIEW_MAX = 10;
 
 function App() {
   const { user, signOut } = useAuthenticator();
@@ -19,13 +16,16 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const parsedItems = useMemo(
-    () => parseIngredients(ingredientText),
-    [ingredientText]
-  );
-
   async function handleSuggest() {
     setError(null);
+
+    if (!ingredientText.trim()) {
+      setError("食材を入力してください");
+      setSuggestions([]);
+      setHasRequested(false);
+      return;
+    }
+
     setLoading(true);
     setHasRequested(true);
     try {
@@ -45,8 +45,6 @@ function App() {
   }
 
   const loginId = user?.signInDetails?.loginId ?? "あなた";
-  const chipOverflow = Math.max(0, parsedItems.length - CHIP_PREVIEW_MAX);
-  const chips = parsedItems.slice(0, CHIP_PREVIEW_MAX);
 
   return (
     <div className="menu-app__shell">
@@ -89,24 +87,6 @@ function App() {
             value={ingredientText}
             onChange={(e) => setIngredientText(e.target.value)}
           />
-          {chips.length > 0 ? (
-            <div className="menu-app__chips" aria-label="認識した食材">
-              {chips.map((name, idx) => (
-                <span key={`${name}-${idx}`} className="menu-app__chip">
-                  {name}
-                </span>
-              ))}
-              {chipOverflow > 0 ? (
-                <span className="menu-app__chip menu-app__chip--more">
-                  ほか {chipOverflow} 件
-                </span>
-              ) : null}
-            </div>
-          ) : (
-            <p className="menu-app__hint">
-              入力すると、ここに食材がタグ表示されます。
-            </p>
-          )}
           <div className="menu-app__actions">
             <button
               type="button"
@@ -183,11 +163,10 @@ function App() {
 
                   return (
                     <li key={`${s.title}-${i}`} className="menu-app__card">
-                      <span className="menu-app__card-index" aria-hidden>
-                        {i + 1}
-                      </span>
                       <div className="menu-app__card-body">
-                        <h3 className="menu-app__card-title">{s.title}</h3>
+                        <h3 className="menu-app__card-title">
+                          {s.title}(1人前)
+                        </h3>
                         <div className="menu-app__recipe-layout">
                           <section className="menu-app__recipe-column">
                             <h4 className="menu-app__recipe-heading">材料名</h4>
