@@ -5,6 +5,7 @@ import {
   fetchMenuSuggestions,
   isNonFoodRelatedErrorMessage,
   parseIngredients,
+  parseSuggestedRecipe,
 } from "./suggestMenu";
 import "./App.css";
 
@@ -173,24 +174,77 @@ function App() {
           ) : (
             <ol className="menu-app__cards">
               {suggestions.map((s, i) => (
-                <li key={`${s.title}-${i}`} className="menu-app__card">
-                  <span className="menu-app__card-index" aria-hidden>
-                    {i + 1}
-                  </span>
-                  <div className="menu-app__card-body">
-                    <h3 className="menu-app__card-title">{s.title}</h3>
-                    {s.uses.length > 0 ? (
-                      <ul className="menu-app__tag-list">
-                        {s.uses.map((u, idx) => (
-                          <li key={`${u}-${idx}`} className="menu-app__tag">
-                            {u}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <p className="menu-app__card-note">{s.note}</p>
-                  </div>
-                </li>
+                (() => {
+                  const structured = parseSuggestedRecipe(s.note);
+                  const ingredients =
+                    structured.ingredients.length > 0
+                      ? structured.ingredients
+                      : s.uses.map((name) => ({ name, amount: "" }));
+
+                  return (
+                    <li key={`${s.title}-${i}`} className="menu-app__card">
+                      <span className="menu-app__card-index" aria-hidden>
+                        {i + 1}
+                      </span>
+                      <div className="menu-app__card-body">
+                        <h3 className="menu-app__card-title">{s.title}</h3>
+                        <div className="menu-app__recipe-layout">
+                          <section className="menu-app__recipe-column">
+                            <h4 className="menu-app__recipe-heading">材料名</h4>
+                            {ingredients.length > 0 ? (
+                              <ul className="menu-app__recipe-items">
+                                {ingredients.map((ingredient, idx) => (
+                                  <li
+                                    key={`${ingredient.name}-${idx}`}
+                                    className="menu-app__recipe-item"
+                                  >
+                                    {ingredient.name}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="menu-app__recipe-empty">-</p>
+                            )}
+                          </section>
+                          <section className="menu-app__recipe-column">
+                            <h4 className="menu-app__recipe-heading">分量</h4>
+                            {ingredients.length > 0 ? (
+                              <ul className="menu-app__recipe-items">
+                                {ingredients.map((ingredient, idx) => (
+                                  <li
+                                    key={`${ingredient.name}-amount-${idx}`}
+                                    className="menu-app__recipe-item menu-app__recipe-item--amount"
+                                  >
+                                    {ingredient.amount || "-"}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="menu-app__recipe-empty">-</p>
+                            )}
+                          </section>
+                          <section className="menu-app__recipe-column menu-app__recipe-column--steps">
+                            <h4 className="menu-app__recipe-heading">レシピ</h4>
+                            {structured.steps.length > 0 ? (
+                              <ol className="menu-app__step-list">
+                                {structured.steps.map((step, idx) => (
+                                  <li
+                                    key={`${s.title}-step-${idx}`}
+                                    className="menu-app__step"
+                                  >
+                                    {step}
+                                  </li>
+                                ))}
+                              </ol>
+                            ) : (
+                              <p className="menu-app__recipe-empty">{s.note}</p>
+                            )}
+                          </section>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })()
               ))}
             </ol>
           )}
