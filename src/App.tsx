@@ -1,25 +1,112 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuthenticator } from "@aws-amplify/ui-react";
 import {
+  type MenuHistoryEntry,
   type MenuSuggestion,
+  fetchMenuHistory,
   fetchMenuSuggestions,
   isNonFoodRelatedErrorMessage,
+  parseIngredients,
   parseSuggestedRecipe,
+  saveMenuHistory,
 } from "./suggestMenu";
 import "./App.css";
+
+function getCurrentUserId(user: unknown): string | null {
+  if (!user || typeof user !== "object") {
+    return null;
+  }
+
+  const authUser = user as {
+    userId?: unknown;
+    username?: unknown;
+    signInDetails?: { loginId?: unknown };
+  };
+
+  const candidates = [
+    authUser.userId,
+    authUser.username,
+    authUser.signInDetails?.loginId,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function formatHistoryDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("ja-JP", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(parsed);
+}
 
 function App() {
   const { user, signOut } = useAuthenticator();
   const [ingredientText, setIngredientText] = useState("");
   const [suggestions, setSuggestions] = useState<MenuSuggestion[]>([]);
+  const [history, setHistory] = useState<MenuHistoryEntry[]>([]);
   const [hasRequested, setHasRequested] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const currentUserId = getCurrentUserId(user);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      if (!currentUserId) {
+        setHistory([]);
+        setHistoryError(null);
+        setHistoryLoading(false);
+        return;
+      }
+
+      setHistoryLoading(true);
+      setHistoryError(null);
+
+      try {
+        const nextHistory = await fetchMenuHistory(currentUserId);
+        if (!cancelled) {
+          setHistory(nextHistory);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setHistory([]);
+          setHistoryError(
+            e instanceof Error ? e.message : "履歴の取得に失敗しました"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+
+    void loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId]);
 
   async function handleSuggest() {
     setError(null);
 
-    if (!ingredientText.trim()) {
+    const text = ingredientText.trim();
+    if (!text) {
       setError("食材を入力してください");
       setSuggestions([]);
       setHasRequested(false);
@@ -29,8 +116,29 @@ function App() {
     setLoading(true);
     setHasRequested(true);
     try {
-      const next = await fetchMenuSuggestions(ingredientText);
+      const next = await fetchMenuSuggestions(text);
       setSuggestions(next);
+
+      if (currentUserId && next.length > 0) {
+        try {
+          const saved = await saveMenuHistory({
+            userId: currentUserId,
+            ingredientText: text,
+            suggestion: next[0],
+          });
+
+          setHistory((prev) =>
+            [saved, ...prev.filter((entry) => entry.id !== saved.id)].slice(0, 10)
+          );
+          setHistoryError(null);
+        } catch (historySaveError) {
+          setHistoryError(
+            historySaveError instanceof Error
+              ? historySaveError.message
+              : "履歴の保存に失敗しました"
+          );
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "提案に失敗しました");
       setSuggestions([]);
@@ -225,6 +333,121 @@ function App() {
                   );
                 })()
               ))}
+            </ol>
+          )}
+        </section>
+
+        <section
+          className="menu-app__panel menu-app__panel--history"
+          aria-label="提案履歴"
+        >
+          <div className="menu-app__history-head">
+            <h2 className="menu-app__results-heading">履歴</h2>
+            <p className="menu-app__history-caption">最新10件を表示</p>
+          </div>
+
+          {historyError ? (
+            <p className="menu-app__history-message" role="status">
+              {historyError}
+            </p>
+          ) : null}
+
+          {historyLoading ? (
+            <p className="menu-app__loading-results" aria-live="polite">
+              履歴を読み込んでいます…
+            </p>
+          ) : history.length === 0 ? (
+            <p className="menu-app__empty-body menu-app__empty-body--solo">
+              まだ履歴がありません。献立を提案すると、ここに保存されます。
+            </p>
+          ) : (
+            <ol className="menu-app__cards">
+              {history.map((entry) => {
+                const structured = parseSuggestedRecipe(entry.recipe);
+                const displayIngredients =
+                  structured.ingredients.length > 0
+                    ? structured.ingredients
+                    : (entry.usedIngredients.length > 0
+                        ? entry.usedIngredients
+                        : parseIngredients(entry.ingredientText)
+                      ).map((name) => ({ name, amount: "" }));
+
+                return (
+                  <li key={entry.id} className="menu-app__card">
+                    <div className="menu-app__card-body">
+                      <div className="menu-app__history-meta">
+                        <h3 className="menu-app__card-title">
+                          {entry.dishTitle}(1人前)
+                        </h3>
+                        <time
+                          className="menu-app__history-time"
+                          dateTime={entry.savedAt}
+                        >
+                          {formatHistoryDate(entry.savedAt)}
+                        </time>
+                      </div>
+                      <p className="menu-app__history-input">
+                        入力食材: {entry.ingredientText}
+                      </p>
+                      <div className="menu-app__recipe-layout">
+                        <section className="menu-app__recipe-column">
+                          <h4 className="menu-app__recipe-heading">材料名</h4>
+                          {displayIngredients.length > 0 ? (
+                            <ul className="menu-app__recipe-items">
+                              {displayIngredients.map((ingredient, idx) => (
+                                <li
+                                  key={`${entry.id}-${ingredient.name}-${idx}`}
+                                  className="menu-app__recipe-item"
+                                >
+                                  {ingredient.name}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="menu-app__recipe-empty">-</p>
+                          )}
+                        </section>
+                        <section className="menu-app__recipe-column">
+                          <h4 className="menu-app__recipe-heading">分量</h4>
+                          {displayIngredients.length > 0 ? (
+                            <ul className="menu-app__recipe-items">
+                              {displayIngredients.map((ingredient, idx) => (
+                                <li
+                                  key={`${entry.id}-amount-${ingredient.name}-${idx}`}
+                                  className="menu-app__recipe-item menu-app__recipe-item--amount"
+                                >
+                                  {ingredient.amount || "-"}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="menu-app__recipe-empty">-</p>
+                          )}
+                        </section>
+                        <section className="menu-app__recipe-column menu-app__recipe-column--steps">
+                          <h4 className="menu-app__recipe-heading">レシピ</h4>
+                          {structured.steps.length > 0 ? (
+                            <ol className="menu-app__step-list">
+                              {structured.steps.map((step, idx) => (
+                                <li
+                                  key={`${entry.id}-step-${idx}`}
+                                  className="menu-app__step"
+                                >
+                                  {step}
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <p className="menu-app__recipe-empty">
+                              {entry.recipe}
+                            </p>
+                          )}
+                        </section>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           )}
         </section>

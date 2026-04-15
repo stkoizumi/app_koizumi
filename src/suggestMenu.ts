@@ -7,6 +7,16 @@ export type MenuSuggestion = {
   note: string;
 };
 
+export type MenuHistoryEntry = {
+  id: string;
+  userId: string;
+  ingredientText: string;
+  dishTitle: string;
+  recipe: string;
+  usedIngredients: string[];
+  savedAt: string;
+};
+
 export type RecipeIngredient = {
   name: string;
   amount: string;
@@ -16,6 +26,8 @@ export type StructuredRecipe = {
   ingredients: RecipeIngredient[];
   steps: string[];
 };
+
+type MenuHistoryModel = Schema["MenuHistory"]["type"];
 
 const client = generateClient<Schema>();
 
@@ -63,7 +75,7 @@ function looksLikeAmount(text: string): boolean {
     return false;
   }
 
-  return /^(?:約\s*)?(?:(?:大さじ|小さじ)\s*\d+(?:\s*\/\s*\d+)?|(?:\d+|[０-９]+)(?:\s*\/\s*(?:\d+|[０-９]+))?(?:\.\d+)?(?:\s*(?:g|kg|mg|ml|mL|cc|l|L|リットル|カップ|個|玉|本|枚|袋|パック|缶|片|房|束|合|かけ|切れ|尾|杯|滴|cm))|(?:\d+|[０-９]+)(?:\s*[〜~\-]\s*(?:\d+|[０-９]+))?\s*(?:個|本|枚|玉|袋|パック|缶)|少々|適量|ひとつまみ|お好みで|適宜)$/.test(
+  return /^(?:約\s*)?(?:(?:大さじ|小さじ)\s*\d+(?:\s*\/\s*\d+)?|(?:\d+|[０-９]+)(?:\s*\/\s*(?:\d+|[０-９]+))?(?:\.\d+)?(?:\s*(?:g|kg|mg|ml|mL|cc|l|L|リットル|カップ|個|玉|本|枚|袋|パック|缶|片|房|束|合|かけ|切れ|尾|杯|滴|cm))|(?:\d+|[０-９]+)(?:\s*[〜~-]\s*(?:\d+|[０-９]+))?\s*(?:個|本|枚|玉|袋|パック|缶)|少々|適量|ひとつまみ|お好みで|適宜)$/.test(
     normalized
   );
 }
@@ -86,7 +98,7 @@ function parseIngredientLine(line: string): RecipeIngredient {
     };
   }
 
-  const tokens = cleaned.split(/[\s　]+/).filter(Boolean);
+  const tokens = cleaned.split(/[\s\u3000]+/).filter(Boolean);
   for (let amountTokenCount = Math.min(3, tokens.length - 1); amountTokenCount >= 1; amountTokenCount -= 1) {
     const name = tokens.slice(0, -amountTokenCount).join(" ").trim();
     const amount = tokens.slice(-amountTokenCount).join(" ").trim();
@@ -147,6 +159,26 @@ export function parseSuggestedRecipe(recipe: string): StructuredRecipe {
   };
 }
 
+function normalizeHistoryEntry(
+  entry: Partial<MenuHistoryEntry> & { id?: string | null }
+): MenuHistoryEntry {
+  return {
+    id: entry.id ?? crypto.randomUUID(),
+    userId: entry.userId ?? "",
+    ingredientText: entry.ingredientText ?? "",
+    dishTitle: entry.dishTitle ?? "",
+    recipe: entry.recipe ?? "",
+    usedIngredients: entry.usedIngredients ?? [],
+    savedAt: entry.savedAt ?? new Date(0).toISOString(),
+  };
+}
+
+function normalizeStringArray(
+  values: ReadonlyArray<string | null | undefined> | null | undefined
+): string[] {
+  return (values ?? []).filter((value): value is string => typeof value === "string");
+}
+
 /** AppSync の suggestMenu クエリ（Lambda → Bedrock）を呼び出す。 */
 export async function fetchMenuSuggestions(
   ingredientText: string
@@ -183,4 +215,78 @@ export async function fetchMenuSuggestions(
       note: data.recipe ?? "",
     },
   ];
+}
+
+export async function saveMenuHistory(input: {
+  userId: string;
+  ingredientText: string;
+  suggestion: MenuSuggestion;
+}): Promise<MenuHistoryEntry> {
+  const savedAt = new Date().toISOString();
+  const { data, errors } = await client.models.MenuHistory.create(
+    {
+      userId: input.userId,
+      ingredientText: input.ingredientText.trim(),
+      dishTitle: input.suggestion.title,
+      recipe: input.suggestion.note,
+      usedIngredients: input.suggestion.uses,
+      savedAt,
+    },
+    {
+      authMode: "userPool",
+    }
+  );
+
+  if (errors?.length) {
+    const msg = errors.map((e) => e.message).join(" ");
+    throw new Error(msg || "履歴の保存に失敗しました");
+  }
+
+  if (!data) {
+    throw new Error("履歴を保存できませんでした");
+  }
+
+  return normalizeHistoryEntry({
+    id: data.id,
+    userId: data.userId,
+    ingredientText: data.ingredientText,
+    dishTitle: data.dishTitle,
+    recipe: data.recipe,
+    usedIngredients: normalizeStringArray(data.usedIngredients),
+    savedAt: data.savedAt ?? savedAt,
+  });
+}
+
+export async function fetchMenuHistory(
+  userId: string,
+  limit = 10
+): Promise<MenuHistoryEntry[]> {
+  const { data, errors } =
+    await client.models.MenuHistory.listMenuHistoryByUserIdAndSavedAt(
+      {
+        userId,
+      },
+      {
+        authMode: "userPool",
+        limit,
+        sortDirection: "DESC",
+      }
+    );
+
+  if (errors?.length) {
+    const msg = errors.map((e: { message: string }) => e.message).join(" ");
+    throw new Error(msg || "履歴の取得に失敗しました");
+  }
+
+  return (data ?? []).map((entry: MenuHistoryModel) =>
+    normalizeHistoryEntry({
+      id: entry.id,
+      userId: entry.userId,
+      ingredientText: entry.ingredientText,
+      dishTitle: entry.dishTitle,
+      recipe: entry.recipe,
+      usedIngredients: normalizeStringArray(entry.usedIngredients),
+      savedAt: entry.savedAt,
+    })
+  );
 }
