@@ -1,4 +1,5 @@
 import { generateClient } from "aws-amplify/data";
+import { getUrl, remove, uploadData } from "aws-amplify/storage";
 import type { Schema } from "../amplify/data/resource";
 
 export type MenuSuggestion = {
@@ -6,6 +7,8 @@ export type MenuSuggestion = {
   uses: string[];
   note: string;
 };
+
+export type RecommendedMenu = MenuSuggestion;
 
 export type MenuHistoryEntry = {
   id: string;
@@ -25,6 +28,7 @@ export type FavoriteMenuEntry = {
   dishTitle: string;
   recipe: string;
   usedIngredients: string[];
+  imagePath: string | null;
   favoritedAt: string;
   sourceHistoryId: string | null;
 };
@@ -43,6 +47,7 @@ type MenuHistoryModel = Schema["MenuHistory"]["type"];
 type FavoriteMenuModel = Schema["FavoriteMenu"]["type"];
 
 const client = generateClient<Schema>();
+const MAX_FAVORITE_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 
 /** Lambda が「献立と無関係」と判定したときのメッセージ（この文言が含まれるエラーは UI で区別する） */
 export const NON_FOOD_ERROR_SNIPPET =
@@ -156,6 +161,60 @@ function parseIngredientLine(line: string): RecipeIngredient {
   return { name: cleaned, amount: "" };
 }
 
+function looksLikeStructuredIngredientLine(line: string): boolean {
+  const cleaned = stripListMarker(line);
+  if (!cleaned) {
+    return false;
+  }
+
+  if (/^(.+?)[：:]\s*(.+)$/.test(cleaned) || /\s\|\s/.test(cleaned)) {
+    return true;
+  }
+
+  const tokens = cleaned.split(/[\s\u3000]+/).filter(Boolean);
+  for (
+    let amountTokenCount = Math.min(3, tokens.length - 1);
+    amountTokenCount >= 1;
+    amountTokenCount -= 1
+  ) {
+    const amount = tokens.slice(-amountTokenCount).join(" ").trim();
+    if (looksLikeAmount(amount)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function looksLikeInstructionLine(line: string): boolean {
+  const cleaned = stripListMarker(line);
+  if (!cleaned) {
+    return false;
+  }
+
+  if (/[。！？]/.test(cleaned)) {
+    return true;
+  }
+
+  return /(?:加え|混ぜ|炒め|焼[きく]|煮|茹で|ゆで|揚げ|のせ|載せ|かけ|仕上げ|盛り付け|切り|刻み|熱し|入れ|戻し|蒸し|完成)/.test(
+    cleaned
+  );
+}
+
+function looksLikeSimpleIngredientName(line: string): boolean {
+  const cleaned = stripListMarker(line);
+  if (!cleaned || looksLikeInstructionLine(cleaned)) {
+    return false;
+  }
+
+  if (/[：:|。！？]/.test(cleaned)) {
+    return false;
+  }
+
+  const tokens = cleaned.split(/[\s\u3000]+/).filter(Boolean);
+  return tokens.length >= 1 && tokens.length <= 3 && cleaned.length <= 24;
+}
+
 export function parseSuggestedRecipe(recipe: string): StructuredRecipe {
   const lines = normalizeRecipeLines(recipe);
   const ingredientHeaderIndex = lines.findIndex(isIngredientHeader);
@@ -176,10 +235,23 @@ export function parseSuggestedRecipe(recipe: string): StructuredRecipe {
       ? lines.slice(stepHeaderIndex + 1)
       : lines.filter((line) => /^\s*(?:[0-9０-９]+[.)．、]?)/.test(line));
 
-  const ingredients = ingredientLines
-    .filter((line) => !isServingsLine(line))
-    .map(parseIngredientLine)
-    .filter((ingredient) => ingredient.name.length > 0);
+  const ingredientCandidates = ingredientLines.filter(
+    (line) => !isServingsLine(line) && !looksLikeInstructionLine(line)
+  );
+  const ingredients =
+    ingredientHeaderIndex >= 0
+      ? ingredientCandidates
+          .filter(
+            (line) =>
+              looksLikeStructuredIngredientLine(line) ||
+              looksLikeSimpleIngredientName(line)
+          )
+          .map(parseIngredientLine)
+          .filter((ingredient) => ingredient.name.length > 0)
+      : ingredientCandidates
+          .filter(looksLikeStructuredIngredientLine)
+          .map(parseIngredientLine)
+          .filter((ingredient) => ingredient.name.length > 0);
 
   const steps = stepLines
     .map(stripListMarker)
@@ -230,9 +302,39 @@ function normalizeFavoriteEntry(
     dishTitle: entry.dishTitle ?? "",
     recipe: entry.recipe ?? "",
     usedIngredients: entry.usedIngredients ?? [],
+    imagePath: normalizeNullableString(entry.imagePath),
     favoritedAt: entry.favoritedAt ?? new Date(0).toISOString(),
     sourceHistoryId: normalizeNullableString(entry.sourceHistoryId),
   };
+}
+
+function sanitizeFavoriteImageFileName(fileName: string): string {
+  const normalized = fileName.normalize("NFKD").replace(/[^\w.-]+/g, "-");
+  const trimmed = normalized.replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return trimmed || "favorite-image";
+}
+
+function buildFavoriteImagePath(
+  identityId: string | undefined,
+  favoriteId: string,
+  fileName: string
+): string {
+  if (!identityId) {
+    throw new Error("画像保存用のユーザー情報を取得できませんでした");
+  }
+
+  const safeFileName = sanitizeFavoriteImageFileName(fileName);
+  return `favorite-menu-images/${identityId}/${favoriteId}/${Date.now()}-${safeFileName}`;
+}
+
+function assertFavoriteImageFile(file: File): void {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("画像ファイルを選択してください");
+  }
+
+  if (file.size > MAX_FAVORITE_IMAGE_SIZE_BYTES) {
+    throw new Error("画像サイズは5MB以下にしてください");
+  }
 }
 
 function dedupeFavoritesByDishTitle(entries: FavoriteMenuEntry[]): FavoriteMenuEntry[] {
@@ -285,6 +387,37 @@ export async function fetchMenuSuggestions(
       note: data.recipe ?? "",
     },
   ];
+}
+
+export async function fetchRecommendedMenus(): Promise<RecommendedMenu[]> {
+  const { data, errors } = await client.queries.recommendMenus();
+
+  if (errors?.length) {
+    const msg = errors.map((e) => e.message).join(" ");
+    throw new Error(msg || "おすすめ料理の取得に失敗しました");
+  }
+
+  const items = (data ?? [])
+    .filter(
+      (
+        item
+      ): item is {
+        title?: string | null;
+        recipe?: string | null;
+      } => Boolean(item)
+    )
+    .map((item) => ({
+      title: item.title?.trim() || "おすすめ料理",
+      uses: [],
+      note: item.recipe?.trim() || "",
+    }))
+    .filter((item) => item.title.length > 0 || item.note.length > 0);
+
+  if (items.length === 0) {
+    throw new Error("おすすめ料理データを取得できませんでした");
+  }
+
+  return items;
 }
 
 export async function saveMenuHistory(input: {
@@ -400,6 +533,7 @@ async function listFavoritePage(
         dishTitle: entry.dishTitle,
         recipe: entry.recipe,
         usedIngredients: normalizeStringArray(entry.usedIngredients),
+        imagePath: entry.imagePath,
         favoritedAt: entry.favoritedAt,
         sourceHistoryId: entry.sourceHistoryId,
       })
@@ -454,6 +588,7 @@ export async function createFavorite(input: {
       dishTitle: input.dishTitle,
       recipe: input.recipe,
       usedIngredients: [...input.usedIngredients],
+      imagePath: null,
       favoritedAt,
       sourceHistoryId: normalizeNullableString(input.sourceHistoryId),
     },
@@ -479,6 +614,7 @@ export async function createFavorite(input: {
     dishTitle: data.dishTitle,
     recipe: data.recipe,
     usedIngredients: normalizeStringArray(data.usedIngredients),
+    imagePath: data.imagePath,
     favoritedAt: data.favoritedAt ?? favoritedAt,
     sourceHistoryId: data.sourceHistoryId,
   });
@@ -499,6 +635,12 @@ export async function deleteFavorite(
   }
 
   for (const target of targets) {
+    if (target.imagePath) {
+      await remove({
+        path: target.imagePath,
+      });
+    }
+
     const { errors } = await client.models.FavoriteMenu.delete(
       {
         id: target.id,
@@ -526,4 +668,121 @@ export async function fetchFavorites(
     items: dedupeFavoritesByDishTitle(page.items),
     nextToken: page.nextToken,
   };
+}
+
+export async function getFavoriteImageUrl(imagePath: string): Promise<string> {
+  const { url } = await getUrl({
+    path: imagePath,
+    options: {
+      validateObjectExistence: true,
+      expiresIn: 60 * 60,
+    },
+  });
+
+  return url.toString();
+}
+
+export async function uploadFavoriteImage(input: {
+  favoriteId: string;
+  imageFile: File;
+  existingImagePath?: string | null;
+}): Promise<FavoriteMenuEntry> {
+  assertFavoriteImageFile(input.imageFile);
+
+  const uploadTask = uploadData({
+    path: ({ identityId }) =>
+      buildFavoriteImagePath(identityId, input.favoriteId, input.imageFile.name),
+    data: input.imageFile,
+    options: {
+      contentType: input.imageFile.type,
+    },
+  });
+
+  const result = await uploadTask.result;
+
+  try {
+    const { data, errors } = await client.models.FavoriteMenu.update(
+      {
+        id: input.favoriteId,
+        imagePath: result.path,
+      },
+      {
+        authMode: "userPool",
+      }
+    );
+
+    if (errors?.length) {
+      const msg = errors.map((e) => e.message).join(" ");
+      throw new Error(msg || "お気に入り画像の保存に失敗しました");
+    }
+
+    if (!data) {
+      throw new Error("お気に入り画像を保存できませんでした");
+    }
+
+    if (input.existingImagePath && input.existingImagePath !== result.path) {
+      await remove({
+        path: input.existingImagePath,
+      });
+    }
+
+    return normalizeFavoriteEntry({
+      id: data.id,
+      userId: data.userId,
+      favoriteKey: data.favoriteKey,
+      ingredientText: data.ingredientText,
+      dishTitle: data.dishTitle,
+      recipe: data.recipe,
+      usedIngredients: normalizeStringArray(data.usedIngredients),
+      imagePath: data.imagePath,
+      favoritedAt: data.favoritedAt,
+      sourceHistoryId: data.sourceHistoryId,
+    });
+  } catch (error) {
+    await remove({
+      path: result.path,
+    }).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function removeFavoriteImage(input: {
+  favoriteId: string;
+  imagePath: string;
+}): Promise<FavoriteMenuEntry> {
+  await remove({
+    path: input.imagePath,
+  });
+
+  const { data, errors } = await client.models.FavoriteMenu.update(
+    {
+      id: input.favoriteId,
+      imagePath: null,
+    },
+    {
+      authMode: "userPool",
+    }
+  );
+
+  if (errors?.length) {
+    const msg = errors.map((e) => e.message).join(" ");
+    throw new Error(msg || "お気に入り画像の削除に失敗しました");
+  }
+
+  if (!data) {
+    throw new Error("お気に入り画像を削除できませんでした");
+  }
+
+  return normalizeFavoriteEntry({
+    id: data.id,
+    userId: data.userId,
+    favoriteKey: data.favoriteKey,
+    ingredientText: data.ingredientText,
+    dishTitle: data.dishTitle,
+    recipe: data.recipe,
+    usedIngredients: normalizeStringArray(data.usedIngredients),
+    imagePath: data.imagePath,
+    favoritedAt: data.favoritedAt,
+    sourceHistoryId: data.sourceHistoryId,
+  });
 }
