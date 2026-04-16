@@ -16,6 +16,23 @@ const schema = a.schema({
     ])
     .authorization((allow) => [allow.owner()]),
 
+  FavoriteMenu: a
+    .model({
+      userId: a.string().required(),
+      favoriteKey: a.string().required(),
+      ingredientText: a.string().required(),
+      dishTitle: a.string().required(),
+      recipe: a.string().required(),
+      usedIngredients: a.string().array(),
+      favoritedAt: a.string().required(),
+      sourceHistoryId: a.string(),
+    })
+    .secondaryIndexes((index) => [
+      index("userId").sortKeys(["favoritedAt"]),
+      index("userId").sortKeys(["favoriteKey"]),
+    ])
+    .authorization((allow) => [allow.owner()]),
+
   SuggestMenuResponse: a.customType({
     title: a.string(),
     recipe: a.string(),

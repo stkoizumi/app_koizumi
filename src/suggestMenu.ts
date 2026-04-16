@@ -17,6 +17,18 @@ export type MenuHistoryEntry = {
   savedAt: string;
 };
 
+export type FavoriteMenuEntry = {
+  id: string;
+  userId: string;
+  favoriteKey: string;
+  ingredientText: string;
+  dishTitle: string;
+  recipe: string;
+  usedIngredients: string[];
+  favoritedAt: string;
+  sourceHistoryId: string | null;
+};
+
 export type RecipeIngredient = {
   name: string;
   amount: string;
@@ -28,6 +40,7 @@ export type StructuredRecipe = {
 };
 
 type MenuHistoryModel = Schema["MenuHistory"]["type"];
+type FavoriteMenuModel = Schema["FavoriteMenu"]["type"];
 
 const client = generateClient<Schema>();
 
@@ -55,6 +68,29 @@ function normalizeRecipeLines(recipe: string): string[] {
 
 function stripListMarker(line: string): string {
   return line.replace(/^\s*(?:[-*・]|[0-9０-９]+[.)．、]?)\s*/, "").trim();
+}
+
+function normalizeFavoriteKeyPart(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLocaleLowerCase("ja-JP");
+}
+
+export function normalizeDishTitleKey(dishTitle: string): string {
+  return normalizeFavoriteKeyPart(dishTitle);
+}
+
+export function buildFavoriteMenuKey(input: {
+  dishTitle: string;
+  recipe: string;
+  usedIngredients: readonly string[];
+}): string {
+  const title = normalizeFavoriteKeyPart(input.dishTitle);
+  const recipe = normalizeFavoriteKeyPart(input.recipe);
+  const ingredients = input.usedIngredients
+    .map((ingredient) => normalizeFavoriteKeyPart(ingredient))
+    .filter(Boolean)
+    .join("|");
+
+  return [title, recipe, ingredients].join("::");
 }
 
 function isServingsLine(line: string): boolean {
@@ -179,6 +215,40 @@ function normalizeStringArray(
   return (values ?? []).filter((value): value is string => typeof value === "string");
 }
 
+function normalizeNullableString(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function normalizeFavoriteEntry(
+  entry: Partial<FavoriteMenuEntry> & { id?: string | null }
+): FavoriteMenuEntry {
+  return {
+    id: entry.id ?? crypto.randomUUID(),
+    userId: entry.userId ?? "",
+    favoriteKey: entry.favoriteKey ?? "",
+    ingredientText: entry.ingredientText ?? "",
+    dishTitle: entry.dishTitle ?? "",
+    recipe: entry.recipe ?? "",
+    usedIngredients: entry.usedIngredients ?? [],
+    favoritedAt: entry.favoritedAt ?? new Date(0).toISOString(),
+    sourceHistoryId: normalizeNullableString(entry.sourceHistoryId),
+  };
+}
+
+function dedupeFavoritesByDishTitle(entries: FavoriteMenuEntry[]): FavoriteMenuEntry[] {
+  const seen = new Set<string>();
+
+  return entries.filter((entry) => {
+    const dishKey = normalizeDishTitleKey(entry.dishTitle);
+    if (seen.has(dishKey)) {
+      return false;
+    }
+
+    seen.add(dishKey);
+    return true;
+  });
+}
+
 /** AppSync の suggestMenu クエリ（Lambda → Bedrock）を呼び出す。 */
 export async function fetchMenuSuggestions(
   ingredientText: string
@@ -289,4 +359,171 @@ export async function fetchMenuHistory(
       savedAt: entry.savedAt,
     })
   );
+}
+
+async function listFavoritePage(
+  userId: string,
+  limit = 50,
+  nextToken?: string | null
+) {
+  const response =
+    await client.models.FavoriteMenu.listFavoriteMenuByUserIdAndFavoritedAt(
+      {
+        userId,
+      },
+      {
+        authMode: "userPool",
+        limit,
+        nextToken: nextToken ?? undefined,
+        sortDirection: "DESC",
+      }
+    );
+  const { data, errors } = response;
+
+  if (errors?.length) {
+    const msg = errors.map((e: { message: string }) => e.message).join(" ");
+    throw new Error(msg || "お気に入りの取得に失敗しました");
+  }
+
+  const responseNextToken =
+    "nextToken" in response && typeof response.nextToken === "string"
+      ? response.nextToken
+      : null;
+
+  return {
+    items: (data ?? []).map((entry: FavoriteMenuModel) =>
+      normalizeFavoriteEntry({
+        id: entry.id,
+        userId: entry.userId,
+        favoriteKey: entry.favoriteKey,
+        ingredientText: entry.ingredientText,
+        dishTitle: entry.dishTitle,
+        recipe: entry.recipe,
+        usedIngredients: normalizeStringArray(entry.usedIngredients),
+        favoritedAt: entry.favoritedAt,
+        sourceHistoryId: entry.sourceHistoryId,
+      })
+    ),
+    nextToken: responseNextToken,
+  };
+}
+
+async function fetchAllFavoritesForUser(userId: string): Promise<FavoriteMenuEntry[]> {
+  const allFavorites: FavoriteMenuEntry[] = [];
+  let nextToken: string | null = null;
+
+  do {
+    const page = await listFavoritePage(userId, 100, nextToken);
+    allFavorites.push(...page.items);
+    nextToken = page.nextToken;
+  } while (nextToken);
+
+  return allFavorites;
+}
+
+export async function createFavorite(input: {
+  userId: string;
+  ingredientText: string;
+  dishTitle: string;
+  recipe: string;
+  usedIngredients: readonly string[];
+  sourceHistoryId?: string | null;
+}): Promise<FavoriteMenuEntry> {
+  const favoriteKey = buildFavoriteMenuKey({
+    dishTitle: input.dishTitle,
+    recipe: input.recipe,
+    usedIngredients: input.usedIngredients,
+  });
+  const existingFavorites = await fetchAllFavoritesForUser(input.userId);
+  const dishKey = normalizeDishTitleKey(input.dishTitle);
+
+  if (
+    existingFavorites.some(
+      (entry) => normalizeDishTitleKey(entry.dishTitle) === dishKey
+    )
+  ) {
+    throw new Error("この料理は既にお気に入り登録されています");
+  }
+
+  const favoritedAt = new Date().toISOString();
+  const { data, errors } = await client.models.FavoriteMenu.create(
+    {
+      userId: input.userId,
+      favoriteKey,
+      ingredientText: input.ingredientText.trim(),
+      dishTitle: input.dishTitle,
+      recipe: input.recipe,
+      usedIngredients: [...input.usedIngredients],
+      favoritedAt,
+      sourceHistoryId: normalizeNullableString(input.sourceHistoryId),
+    },
+    {
+      authMode: "userPool",
+    }
+  );
+
+  if (errors?.length) {
+    const msg = errors.map((e) => e.message).join(" ");
+    throw new Error(msg || "お気に入りの保存に失敗しました");
+  }
+
+  if (!data) {
+    throw new Error("お気に入りを保存できませんでした");
+  }
+
+  return normalizeFavoriteEntry({
+    id: data.id,
+    userId: data.userId,
+    favoriteKey: data.favoriteKey,
+    ingredientText: data.ingredientText,
+    dishTitle: data.dishTitle,
+    recipe: data.recipe,
+    usedIngredients: normalizeStringArray(data.usedIngredients),
+    favoritedAt: data.favoritedAt ?? favoritedAt,
+    sourceHistoryId: data.sourceHistoryId,
+  });
+}
+
+export async function deleteFavorite(
+  userId: string,
+  dishTitle: string
+): Promise<void> {
+  const dishKey = normalizeDishTitleKey(dishTitle);
+  const existingFavorites = await fetchAllFavoritesForUser(userId);
+  const targets = existingFavorites.filter(
+    (entry) => normalizeDishTitleKey(entry.dishTitle) === dishKey
+  );
+
+  if (targets.length === 0) {
+    return;
+  }
+
+  for (const target of targets) {
+    const { errors } = await client.models.FavoriteMenu.delete(
+      {
+        id: target.id,
+      },
+      {
+        authMode: "userPool",
+      }
+    );
+
+    if (errors?.length) {
+      const msg = errors.map((e) => e.message).join(" ");
+      throw new Error(msg || "お気に入りの解除に失敗しました");
+    }
+  }
+}
+
+export async function fetchFavorites(
+  userId: string,
+  limit = 20,
+  nextToken?: string | null
+): Promise<{ items: FavoriteMenuEntry[]; nextToken: string | null }> {
+  const page = await listFavoritePage(userId, limit, nextToken);
+
+  return {
+    items: dedupeFavoritesByDishTitle(page.items),
+    nextToken: page.nextToken,
+  };
 }

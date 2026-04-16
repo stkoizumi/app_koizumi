@@ -1,14 +1,46 @@
 .menu-app__shell {
+  --menu-app-sidebar-width: clamp(14rem, 18vw, 17rem);
+  --menu-app-feature-offset: clamp(5rem, 12vw, 8rem);
   width: 100%;
-  max-width: 72rem;
-  margin-inline: auto;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--menu-app-sidebar-width) minmax(0, 1fr);
+  align-items: stretch;
 }
 
 .menu-app {
+  min-width: 0;
+  padding: 1.5rem 1.5rem 1.5rem 0.75rem;
+}
+
+.menu-app__main-inner {
   text-align: left;
   display: flex;
   flex-direction: column;
   gap: 1.35rem;
+  width: min(100%, 52rem);
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.menu-app__sidebar {
+  min-width: 0;
+  background: rgba(239, 242, 236, 0.95);
+  border-right: 1px solid rgba(122, 158, 126, 0.18);
+}
+
+.menu-app__sidebar-inner {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 1rem 0.85rem;
+  overflow-y: auto;
+}
+
+.menu-app__sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
 }
 
 .menu-app__header {
@@ -18,11 +50,18 @@
 
 .menu-app__header,
 .menu-app__panel--input,
-.menu-app__error,
 .menu-app__footer {
   width: 100%;
-  max-width: 32rem;
-  margin-inline: auto;
+  max-width: 34rem;
+  margin-left: var(--menu-app-feature-offset);
+  margin-right: auto;
+}
+
+.menu-app__error {
+  width: 100%;
+  max-width: 34rem;
+  margin-left: 0;
+  margin-right: auto;
 }
 
 .menu-app__eyebrow {
@@ -270,6 +309,13 @@
   padding-top: 1.05rem;
 }
 
+.menu-app__panel--results {
+  width: 100%;
+  max-width: 52rem;
+  margin-left: 0;
+  margin-inline: 0;
+}
+
 .menu-app__results-heading {
   margin: 0 0 0.85rem;
   font-size: 0.82rem;
@@ -279,12 +325,55 @@
   color: rgba(62, 58, 53, 0.58);
 }
 
+.menu-app__results-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.menu-app__results-caption {
+  margin: -0.45rem 0 0;
+  font-size: 0.78rem;
+  color: rgba(62, 58, 53, 0.52);
+}
+
+.menu-app__view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  background: rgba(122, 158, 126, 0.08);
+  border: 1px solid rgba(122, 158, 126, 0.14);
+  border-radius: 999px;
+}
+
+.menu-app__view-btn {
+  min-width: 5.75rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgba(62, 58, 53, 0.74);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+}
+
+.menu-app__view-btn--active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-deep) 100%);
+  box-shadow: 0 6px 14px rgba(122, 158, 126, 0.2);
+}
+
 .menu-app__history-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
+  padding: 0 0.25rem;
 }
 
 .menu-app__history-caption {
@@ -367,19 +456,28 @@
   gap: 0.85rem;
   align-items: flex-start;
   margin: 0;
-  padding: 1rem 1rem 1rem 0.85rem;
-  background: rgba(255, 251, 245, 0.92);
+  padding: 0.85rem 0.9rem;
+  background: rgba(255, 255, 255, 0.76);
   border-radius: 14px;
-  border: 1px solid rgba(122, 158, 126, 0.12);
-  box-shadow: 0 2px 12px rgba(110, 92, 58, 0.08);
+  border: 1px solid rgba(122, 158, 126, 0.1);
+  box-shadow: none;
   transition:
     box-shadow 0.2s ease,
-    border-color 0.2s ease;
+    border-color 0.2s ease,
+    background-color 0.2s ease;
 }
 
 .menu-app__card:hover {
   border-color: rgba(122, 158, 126, 0.24);
-  box-shadow: 0 6px 20px rgba(122, 158, 126, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.menu-app__sidebar .menu-app__card-title {
+  font-size: 0.95rem;
+}
+
+.menu-app__sidebar .menu-app__recipe-layout {
+  grid-template-columns: 1fr;
 }
 
 .menu-app__card-body {
@@ -388,6 +486,13 @@
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+}
+
+.menu-app__card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .menu-app__card-title {
@@ -407,10 +512,101 @@
   flex-wrap: wrap;
 }
 
+.menu-app__history-main,
+.menu-app__favorite-headline {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.menu-app__history-details {
+  width: 100%;
+}
+
+.menu-app__history-summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.menu-app__history-summary::-webkit-details-marker {
+  display: none;
+}
+
+.menu-app__history-summary .menu-app__history-meta {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.25rem;
+  padding-right: 2rem;
+}
+
+.menu-app__history-summary .menu-app__history-meta::after {
+  content: "▾";
+  position: absolute;
+  top: 0.1rem;
+  right: 0;
+  font-size: 0.95rem;
+  color: rgba(62, 58, 53, 0.56);
+  transition: transform 0.2s ease;
+}
+
+.menu-app__history-details[open] .menu-app__history-meta::after {
+  transform: rotate(180deg);
+}
+
 .menu-app__history-time {
   font-size: 0.8rem;
   font-weight: 600;
   color: rgba(62, 58, 53, 0.56);
+}
+
+.menu-app__favorite-btn {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: rgba(117, 94, 39, 0.7);
+  background: rgba(255, 248, 225, 0.78);
+  border: 1px solid rgba(214, 182, 95, 0.24);
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(214, 182, 95, 0.12);
+}
+
+.menu-app__favorite-btn:hover:not(:disabled) {
+  color: #8f6a00;
+  background: rgba(255, 245, 204, 0.95);
+  border-color: rgba(214, 182, 95, 0.38);
+}
+
+.menu-app__favorite-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.menu-app__favorite-btn--active {
+  color: #fff8d9;
+  background: linear-gradient(135deg, #f0c14b 0%, #c48918 100%);
+  border-color: rgba(196, 137, 24, 0.32);
+}
+
+.menu-app__history-main .menu-app__favorite-btn,
+.menu-app__favorite-headline .menu-app__favorite-btn {
+  margin-top: 0.1rem;
+}
+
+.menu-app__history-content {
+  padding-top: 0.8rem;
 }
 
 .menu-app__history-input {
@@ -546,7 +742,48 @@
 
 @media (max-width: 720px) {
   .menu-app__shell {
-    max-width: 32rem;
+    grid-template-columns: 1fr;
+  }
+
+  .menu-app__main-inner {
+    transform: none;
+  }
+
+  .menu-app__sidebar {
+    border-right: none;
+    border-bottom: 1px solid rgba(122, 158, 126, 0.18);
+  }
+
+  .menu-app__sidebar-inner {
+    position: static;
+    height: auto;
+    max-height: none;
+  }
+
+  .menu-app {
+    padding: 1rem;
+  }
+
+  .menu-app__header,
+  .menu-app__panel--input,
+  .menu-app__footer {
+    margin-left: 0;
+  }
+
+  .menu-app__results-top,
+  .menu-app__card-head,
+  .menu-app__history-summary .menu-app__history-meta {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .menu-app__view-toggle {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .menu-app__view-btn {
+    flex: 1;
   }
 
   .menu-app__recipe-layout {
