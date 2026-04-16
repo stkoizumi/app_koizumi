@@ -1,5 +1,6 @@
 import { type ChangeEvent, type MouseEvent, useEffect, useState } from "react";
 import { useAuthenticator } from "@aws-amplify/ui-react";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import {
   buildFavoriteMenuKey,
   createFavorite,
@@ -75,7 +76,6 @@ type FavoriteSource = {
 };
 
 type ResultsView = "suggestions" | "favorites";
-type AppPage = "home" | "history";
 
 type DisplayIngredient = {
   name: string;
@@ -154,13 +154,13 @@ function renderRecipeLayout(input: {
 
 function App() {
   const { user, signOut } = useAuthenticator();
+  const location = useLocation();
   const [ingredientText, setIngredientText] = useState("");
   const [suggestions, setSuggestions] = useState<MenuSuggestion[]>([]);
   const [history, setHistory] = useState<MenuHistoryEntry[]>([]);
   const [favorites, setFavorites] = useState<FavoriteMenuEntry[]>([]);
   const [hasRequested, setHasRequested] = useState(false);
   const [resultsView, setResultsView] = useState<ResultsView>("suggestions");
-  const [appPage, setAppPage] = useState<AppPage>("home");
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [favoritesLoading, setFavoritesLoading] = useState(true);
@@ -174,6 +174,7 @@ function App() {
   const [favoriteImagePendingIds, setFavoriteImagePendingIds] = useState<string[]>([]);
   const [suggestionHistoryIds, setSuggestionHistoryIds] = useState<Record<string, string | null>>({});
   const currentUserId = getCurrentUserId(user);
+  const isHistoryPage = location.pathname === "/history";
   const favoriteDishKeySet = new Set(
     favorites.map((entry) => normalizeDishTitleKey(entry.dishTitle))
   );
@@ -278,6 +279,10 @@ function App() {
       cancelled = true;
     };
   }, [favorites]);
+
+  if (location.pathname !== "/" && !isHistoryPage) {
+    return <Navigate to="/" replace />;
+  }
 
   function beginFavoriteToggle(favoriteKey: string) {
     setFavoritePendingKeys((prev) =>
@@ -672,74 +677,50 @@ function App() {
   );
 
   return (
-    <div
-      className={
-        appPage === "history"
-          ? "menu-app__shell menu-app__shell--single-page"
-          : "menu-app__shell"
-      }
-    >
-      {appPage === "home" ? (
-        <aside className="menu-app__sidebar" aria-label="提案履歴">
-          <div className="menu-app__sidebar-inner">
-            <section className="menu-app__sidebar-section">
-              {historySectionContent}
-            </section>
-          </div>
-        </aside>
-      ) : null}
-
+    <div className="menu-app__shell menu-app__shell--single-page">
       <main
         className={
-          appPage === "history"
+          isHistoryPage
             ? "menu-app menu-app--history-page"
             : "menu-app"
         }
       >
         <div
           className={
-            appPage === "history"
+            isHistoryPage
               ? "menu-app__main-inner menu-app__main-inner--history-page"
               : "menu-app__main-inner"
           }
         >
           <header
             className={
-              appPage === "history"
+              isHistoryPage
                 ? "menu-app__header menu-app__header--history-page"
                 : "menu-app__header"
             }
           >
             <p className="menu-app__eyebrow">余りもので</p>
             <h1 className="menu-app__title">
-              {appPage === "history" ? "履歴一覧" : "献立提案"}
+              {isHistoryPage ? "履歴一覧" : "献立提案"}
             </h1>
             <p className="menu-app__subtitle">
               <span className="menu-app__subtitle-name">{loginId}</span>
-              さんの{appPage === "history" ? "履歴" : "キッチン"}
+              さんの{isHistoryPage ? "履歴" : "キッチン"}
             </p>
             <div className="menu-app__header-actions">
-              {appPage === "history" ? (
-                <button
-                  type="button"
-                  className="menu-app__secondary-btn"
-                  onClick={() => setAppPage("home")}
-                >
+              {isHistoryPage ? (
+                <Link to="/" className="menu-app__secondary-btn">
                   献立提案へ戻る
-                </button>
+                </Link>
               ) : (
-                <button
-                  type="button"
-                  className="menu-app__secondary-btn"
-                  onClick={() => setAppPage("history")}
-                >
+                <Link to="/history" className="menu-app__secondary-btn">
                   履歴を見る
-                </button>
+                </Link>
               )}
             </div>
           </header>
 
-          {appPage === "history" ? (
+          {isHistoryPage ? (
             <>
               <section
                 className="menu-app__panel menu-app__panel--history-page"
