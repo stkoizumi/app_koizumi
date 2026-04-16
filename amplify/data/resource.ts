@@ -1,5 +1,4 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
-import { recommendMenus as recommendMenusFn } from "../functions/recommend-menus/resource";
 import { suggestMenu as suggestMenuFn } from "../functions/suggest-menu/resource";
 
 const schema = a.schema({
@@ -40,23 +39,12 @@ const schema = a.schema({
     recipe: a.string(),
   }),
 
-  RecommendedMenuItem: a.customType({
-    title: a.string(),
-    recipe: a.string(),
-  }),
-
   suggestMenu: a
     .query()
     .arguments({ ingredientText: a.string() })
     .returns(a.ref("SuggestMenuResponse"))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(suggestMenuFn)),
-
-  recommendMenus: a
-    .query()
-    .returns(a.ref("RecommendedMenuItem").array())
-    .authorization((allow) => [allow.authenticated()])
-    .handler(a.handler.function(recommendMenusFn)),
 });
 
 export type Schema = ClientSchema<typeof schema>;

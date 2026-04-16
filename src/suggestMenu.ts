@@ -8,8 +8,6 @@ export type MenuSuggestion = {
   note: string;
 };
 
-export type RecommendedMenu = MenuSuggestion;
-
 export type MenuHistoryEntry = {
   id: string;
   userId: string;
@@ -389,37 +387,6 @@ export async function fetchMenuSuggestions(
   ];
 }
 
-export async function fetchRecommendedMenus(): Promise<RecommendedMenu[]> {
-  const { data, errors } = await client.queries.recommendMenus();
-
-  if (errors?.length) {
-    const msg = errors.map((e) => e.message).join(" ");
-    throw new Error(msg || "おすすめ料理の取得に失敗しました");
-  }
-
-  const items = (data ?? [])
-    .filter(
-      (
-        item
-      ): item is {
-        title?: string | null;
-        recipe?: string | null;
-      } => Boolean(item)
-    )
-    .map((item) => ({
-      title: item.title?.trim() || "おすすめ料理",
-      uses: [],
-      note: item.recipe?.trim() || "",
-    }))
-    .filter((item) => item.title.length > 0 || item.note.length > 0);
-
-  if (items.length === 0) {
-    throw new Error("おすすめ料理データを取得できませんでした");
-  }
-
-  return items;
-}
-
 export async function saveMenuHistory(input: {
   userId: string;
   ingredientText: string;
@@ -492,6 +459,22 @@ export async function fetchMenuHistory(
       savedAt: entry.savedAt,
     })
   );
+}
+
+export async function deleteMenuHistory(historyId: string): Promise<void> {
+  const { errors } = await client.models.MenuHistory.delete(
+    {
+      id: historyId,
+    },
+    {
+      authMode: "userPool",
+    }
+  );
+
+  if (errors?.length) {
+    const msg = errors.map((e) => e.message).join(" ");
+    throw new Error(msg || "履歴の削除に失敗しました");
+  }
 }
 
 async function listFavoritePage(

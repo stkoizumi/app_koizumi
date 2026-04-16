@@ -3,15 +3,14 @@ import { useAuthenticator } from "@aws-amplify/ui-react";
 import {
   buildFavoriteMenuKey,
   createFavorite,
+  deleteMenuHistory,
   deleteFavorite,
   fetchFavorites,
   type MenuHistoryEntry,
   type MenuSuggestion,
-  type RecommendedMenu,
   type FavoriteMenuEntry,
   fetchMenuHistory,
   getFavoriteImageUrl,
-  fetchRecommendedMenus,
   fetchMenuSuggestions,
   isNonFoodRelatedErrorMessage,
   normalizeDishTitleKey,
@@ -76,8 +75,7 @@ type FavoriteSource = {
 };
 
 type ResultsView = "suggestions" | "favorites";
-
-const RECOMMENDATION_SOURCE_LABEL = "おすすめ料理";
+type AppPage = "home" | "history";
 
 type DisplayIngredient = {
   name: string;
@@ -113,96 +111,43 @@ function renderRecipeLayout(input: {
   steps: string[];
   fallbackRecipe: string;
   keyPrefix: string;
-  combineIngredientAndAmount?: boolean;
 }) {
+  const rowCount = Math.max(input.ingredients.length, input.steps.length, 1);
+
   return (
     <div className="menu-app__recipe-layout">
-      <section className="menu-app__recipe-column">
-        <h4 className="menu-app__recipe-heading">
-          {input.combineIngredientAndAmount ? "材料名 / 分量" : "材料名"}
-        </h4>
-        {input.ingredients.length > 0 ? (
-          input.combineIngredientAndAmount ? (
-            <ul className="menu-app__recipe-items">
-              {input.ingredients.map((ingredient, idx) => (
-                <li
-                  key={`${input.keyPrefix}-ingredient-${ingredient.name}-${idx}`}
-                  className="menu-app__recipe-item menu-app__recipe-item--paired"
-                >
-                  <span className="menu-app__recipe-name">{ingredient.name}</span>
-                  <span className="menu-app__recipe-amount">
-                    {ingredient.amount || "-"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <ul className="menu-app__recipe-items">
-              {input.ingredients.map((ingredient, idx) => (
-                <li
-                  key={`${input.keyPrefix}-ingredient-${ingredient.name}-${idx}`}
-                  className="menu-app__recipe-item"
-                >
-                  {ingredient.name}
-                </li>
-              ))}
-            </ul>
-          )
-        ) : (
-          <p className="menu-app__recipe-empty">-</p>
-        )}
-      </section>
+      <table className="menu-app__recipe-table">
+        <thead>
+          <tr>
+            <th scope="col">材料名</th>
+            <th scope="col">分量</th>
+            <th scope="col">レシピ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rowCount }, (_, idx) => {
+            const ingredient = input.ingredients[idx];
+            const step = input.steps[idx];
+            const fallbackStep = idx === 0 ? input.fallbackRecipe : "";
 
-      {input.combineIngredientAndAmount ? null : (
-        <section className="menu-app__recipe-column">
-          <details className="menu-app__recipe-disclosure">
-            <summary className="menu-app__recipe-summary">
-              <span className="menu-app__recipe-heading menu-app__recipe-heading--summary">
-                分量
-              </span>
-            </summary>
-            <div className="menu-app__recipe-disclosure-content">
-              {input.ingredients.length > 0 ? (
-                <ul className="menu-app__recipe-items">
-                  {input.ingredients.map((ingredient, idx) => (
-                    <li
-                      key={`${input.keyPrefix}-amount-${ingredient.name}-${idx}`}
-                      className="menu-app__recipe-item menu-app__recipe-item--amount"
-                    >
-                      {ingredient.amount || "-"}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="menu-app__recipe-empty">-</p>
-              )}
-            </div>
-          </details>
-        </section>
-      )}
-
-      <section className="menu-app__recipe-column menu-app__recipe-column--steps">
-        <details className="menu-app__recipe-disclosure">
-          <summary className="menu-app__recipe-summary">
-            <span className="menu-app__recipe-heading menu-app__recipe-heading--summary">
-              レシピ
-            </span>
-          </summary>
-          <div className="menu-app__recipe-disclosure-content">
-            {input.steps.length > 0 ? (
-              <ol className="menu-app__step-list">
-                {input.steps.map((step, idx) => (
-                  <li key={`${input.keyPrefix}-step-${idx}`} className="menu-app__step">
-                    {step}
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="menu-app__recipe-empty">{input.fallbackRecipe}</p>
-            )}
-          </div>
-        </details>
-      </section>
+            return (
+              <tr key={`${input.keyPrefix}-row-${idx}`}>
+                <td>{ingredient?.name || (idx === 0 ? "-" : "")}</td>
+                <td className="menu-app__recipe-table-amount">
+                  {ingredient?.amount || (ingredient ? "-" : idx === 0 ? "-" : "")}
+                </td>
+                <td>
+                  {step ? (
+                    <span className="menu-app__recipe-step-text">{`${idx + 1}. ${step}`}</span>
+                  ) : (
+                    fallbackStep
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -210,14 +155,12 @@ function renderRecipeLayout(input: {
 function App() {
   const { user, signOut } = useAuthenticator();
   const [ingredientText, setIngredientText] = useState("");
-  const [recommendedMenus, setRecommendedMenus] = useState<RecommendedMenu[]>([]);
-  const [recommendedLoading, setRecommendedLoading] = useState(true);
-  const [recommendedError, setRecommendedError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<MenuSuggestion[]>([]);
   const [history, setHistory] = useState<MenuHistoryEntry[]>([]);
   const [favorites, setFavorites] = useState<FavoriteMenuEntry[]>([]);
   const [hasRequested, setHasRequested] = useState(false);
   const [resultsView, setResultsView] = useState<ResultsView>("suggestions");
+  const [appPage, setAppPage] = useState<AppPage>("home");
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [favoritesLoading, setFavoritesLoading] = useState(true);
@@ -225,6 +168,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [favoritePendingKeys, setFavoritePendingKeys] = useState<string[]>([]);
+  const [historyDeletePendingIds, setHistoryDeletePendingIds] = useState<string[]>([]);
   const [favoritesNextToken, setFavoritesNextToken] = useState<string | null>(null);
   const [favoriteImageUrls, setFavoriteImageUrls] = useState<Record<string, string>>({});
   const [favoriteImagePendingIds, setFavoriteImagePendingIds] = useState<string[]>([]);
@@ -301,50 +245,6 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadRecommendedMenus() {
-      if (!currentUserId) {
-        setRecommendedMenus([]);
-        setRecommendedError(null);
-        setRecommendedLoading(false);
-        return;
-      }
-
-      setRecommendedLoading(true);
-      setRecommendedError(null);
-
-      try {
-        const items = await fetchRecommendedMenus();
-        if (cancelled) {
-          return;
-        }
-
-        setRecommendedMenus(items);
-      } catch (e) {
-        if (cancelled) {
-          return;
-        }
-
-        setRecommendedMenus([]);
-        setRecommendedError(
-          e instanceof Error ? e.message : "おすすめ料理の取得に失敗しました"
-        );
-      } finally {
-        if (!cancelled) {
-          setRecommendedLoading(false);
-        }
-      }
-    }
-
-    void loadRecommendedMenus();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentUserId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
     async function loadFavoriteImages() {
       const entries = await Promise.all(
         favorites.map(async (entry) => {
@@ -397,6 +297,16 @@ function App() {
 
   function finishFavoriteImageChange(favoriteId: string) {
     setFavoriteImagePendingIds((prev) => prev.filter((id) => id !== favoriteId));
+  }
+
+  function beginHistoryDelete(historyId: string) {
+    setHistoryDeletePendingIds((prev) =>
+      prev.includes(historyId) ? prev : [...prev, historyId]
+    );
+  }
+
+  function finishHistoryDelete(historyId: string) {
+    setHistoryDeletePendingIds((prev) => prev.filter((id) => id !== historyId));
   }
 
   async function toggleFavorite(source: FavoriteSource) {
@@ -469,6 +379,10 @@ function App() {
 
   function isFavoriteImagePending(favoriteId: string): boolean {
     return favoriteImagePendingIds.includes(favoriteId);
+  }
+
+  function isHistoryDeletePending(historyId: string): boolean {
+    return historyDeletePendingIds.includes(historyId);
   }
 
   async function handleFavoriteImageSelection(
@@ -548,6 +462,43 @@ function App() {
     }
   }
 
+  async function handleHistoryDeleteClick(
+    event: MouseEvent<HTMLButtonElement>,
+    entry: MenuHistoryEntry
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    beginHistoryDelete(entry.id);
+    setHistoryError(null);
+
+    try {
+      await deleteMenuHistory(entry.id);
+      setHistory((prev) => prev.filter((historyEntry) => historyEntry.id !== entry.id));
+      setFavorites((prev) =>
+        prev.map((favorite) =>
+          favorite.sourceHistoryId === entry.id
+            ? { ...favorite, sourceHistoryId: null }
+            : favorite
+        )
+      );
+      setSuggestionHistoryIds((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).map(([key, value]) => [
+            key,
+            value === entry.id ? null : value,
+          ])
+        )
+      );
+    } catch (e) {
+      setHistoryError(
+        e instanceof Error ? e.message : "履歴の削除に失敗しました"
+      );
+    } finally {
+      finishHistoryDelete(entry.id);
+    }
+  }
+
   async function handleSuggest() {
     setError(null);
 
@@ -620,115 +571,195 @@ function App() {
   }
 
   const loginId = user?.signInDetails?.loginId ?? "あなた";
+  const historySectionContent = (
+    <>
+      <div className="menu-app__history-head">
+        <h2 className="menu-app__results-heading">履歴</h2>
+        <p className="menu-app__history-caption">最新10件を表示</p>
+      </div>
+
+      {historyError ? (
+        <p className="menu-app__history-message" role="status">
+          {historyError}
+        </p>
+      ) : null}
+
+      {historyLoading ? (
+        <p className="menu-app__loading-results" aria-live="polite">
+          履歴を読み込んでいます…
+        </p>
+      ) : history.length === 0 ? (
+        <p className="menu-app__empty-body menu-app__empty-body--solo">
+          まだ履歴がありません。献立を提案すると、ここに保存されます。
+        </p>
+      ) : (
+        <ol className="menu-app__cards">
+          {history.map((entry) => {
+            const structured = parseSuggestedRecipe(entry.recipe);
+            const favoriteDishKey = normalizeDishTitleKey(entry.dishTitle);
+            const displayIngredients =
+              structured.ingredients.length > 0
+                ? structured.ingredients
+                : (entry.usedIngredients.length > 0
+                    ? entry.usedIngredients
+                    : parseIngredients(entry.ingredientText)
+                  ).map((name) => ({ name, amount: "" }));
+
+            return (
+              <li key={entry.id} className="menu-app__card">
+                <details className="menu-app__history-details">
+                  <summary className="menu-app__history-summary">
+                    <div className="menu-app__history-meta">
+                      <div className="menu-app__history-main">
+                        <h3 className="menu-app__card-title">
+                          {entry.dishTitle}(1人前)
+                        </h3>
+                        <time
+                          className="menu-app__history-time"
+                          dateTime={entry.savedAt}
+                        >
+                          {formatHistoryDate(entry.savedAt)}
+                        </time>
+                        <button
+                          type="button"
+                          className={
+                            favoriteDishKeySet.has(favoriteDishKey)
+                              ? "menu-app__favorite-btn menu-app__favorite-btn--active"
+                              : "menu-app__favorite-btn"
+                          }
+                          aria-label={
+                            favoriteDishKeySet.has(favoriteDishKey)
+                              ? "お気に入りを解除"
+                              : "お気に入りに追加"
+                          }
+                          aria-pressed={favoriteDishKeySet.has(favoriteDishKey)}
+                          disabled={isFavoritePending(favoriteDishKey)}
+                          onClick={(event) =>
+                            handleHistoryFavoriteClick(event, entry)
+                          }
+                        >
+                          {favoriteDishKeySet.has(favoriteDishKey) ? "★" : "☆"}
+                        </button>
+                      </div>
+                    </div>
+                  </summary>
+                  <div className="menu-app__card-body menu-app__history-content">
+                    <p className="menu-app__history-input">
+                      入力食材: {entry.ingredientText}
+                    </p>
+                    {renderRecipeLayout({
+                      ingredients: displayIngredients,
+                      steps: structured.steps,
+                      fallbackRecipe: entry.recipe,
+                      keyPrefix: entry.id,
+                    })}
+                  </div>
+                </details>
+                <button
+                  type="button"
+                  className="menu-app__history-delete-btn"
+                  disabled={isHistoryDeletePending(entry.id)}
+                  onClick={(event) => void handleHistoryDeleteClick(event, entry)}
+                >
+                  {isHistoryDeletePending(entry.id) ? "削除中…" : "削除"}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </>
+  );
 
   return (
-    <div className="menu-app__shell">
-      <aside className="menu-app__sidebar" aria-label="提案履歴">
-        <div className="menu-app__sidebar-inner">
-          <section className="menu-app__sidebar-section">
-            <div className="menu-app__history-head">
-              <h2 className="menu-app__results-heading">履歴</h2>
-              <p className="menu-app__history-caption">最新10件を表示</p>
-            </div>
+    <div
+      className={
+        appPage === "history"
+          ? "menu-app__shell menu-app__shell--single-page"
+          : "menu-app__shell"
+      }
+    >
+      {appPage === "home" ? (
+        <aside className="menu-app__sidebar" aria-label="提案履歴">
+          <div className="menu-app__sidebar-inner">
+            <section className="menu-app__sidebar-section">
+              {historySectionContent}
+            </section>
+          </div>
+        </aside>
+      ) : null}
 
-            {historyError ? (
-              <p className="menu-app__history-message" role="status">
-                {historyError}
-              </p>
-            ) : null}
-
-            {historyLoading ? (
-              <p className="menu-app__loading-results" aria-live="polite">
-                履歴を読み込んでいます…
-              </p>
-            ) : history.length === 0 ? (
-              <p className="menu-app__empty-body menu-app__empty-body--solo">
-                まだ履歴がありません。献立を提案すると、ここに保存されます。
-              </p>
-            ) : (
-              <ol className="menu-app__cards">
-                {history.map((entry) => {
-                  const structured = parseSuggestedRecipe(entry.recipe);
-                  const favoriteDishKey = normalizeDishTitleKey(entry.dishTitle);
-                  const displayIngredients =
-                    structured.ingredients.length > 0
-                      ? structured.ingredients
-                      : (entry.usedIngredients.length > 0
-                          ? entry.usedIngredients
-                          : parseIngredients(entry.ingredientText)
-                        ).map((name) => ({ name, amount: "" }));
-
-                  return (
-                    <li key={entry.id} className="menu-app__card">
-                      <details className="menu-app__history-details">
-                        <summary className="menu-app__history-summary">
-                          <div className="menu-app__history-meta">
-                            <div className="menu-app__history-main">
-                              <h3 className="menu-app__card-title">
-                                {entry.dishTitle}(1人前)
-                              </h3>
-                              <time
-                                className="menu-app__history-time"
-                                dateTime={entry.savedAt}
-                              >
-                                {formatHistoryDate(entry.savedAt)}
-                              </time>
-                              <button
-                                type="button"
-                                className={
-                                  favoriteDishKeySet.has(favoriteDishKey)
-                                    ? "menu-app__favorite-btn menu-app__favorite-btn--active"
-                                    : "menu-app__favorite-btn"
-                                }
-                                aria-label={
-                                  favoriteDishKeySet.has(favoriteDishKey)
-                                    ? "お気に入りを解除"
-                                    : "お気に入りに追加"
-                                }
-                                aria-pressed={favoriteDishKeySet.has(favoriteDishKey)}
-                                disabled={isFavoritePending(favoriteDishKey)}
-                                onClick={(event) =>
-                                  handleHistoryFavoriteClick(event, entry)
-                                }
-                              >
-                                {favoriteDishKeySet.has(favoriteDishKey) ? "★" : "☆"}
-                              </button>
-                            </div>
-                          </div>
-                        </summary>
-                        <div className="menu-app__card-body menu-app__history-content">
-                          <p className="menu-app__history-input">
-                            入力食材: {entry.ingredientText}
-                          </p>
-                          {renderRecipeLayout({
-                            ingredients: displayIngredients,
-                            steps: structured.steps,
-                            fallbackRecipe: entry.recipe,
-                            keyPrefix: entry.id,
-                            combineIngredientAndAmount: true,
-                          })}
-                        </div>
-                      </details>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </section>
-        </div>
-      </aside>
-
-      <main className="menu-app">
-        <div className="menu-app__main-inner">
-          <header className="menu-app__header">
-            <p className="menu-app__eyebrow">面倒くさがりのあなたに</p>
-            <h1 className="menu-app__title">献立提案</h1>
+      <main
+        className={
+          appPage === "history"
+            ? "menu-app menu-app--history-page"
+            : "menu-app"
+        }
+      >
+        <div
+          className={
+            appPage === "history"
+              ? "menu-app__main-inner menu-app__main-inner--history-page"
+              : "menu-app__main-inner"
+          }
+        >
+          <header
+            className={
+              appPage === "history"
+                ? "menu-app__header menu-app__header--history-page"
+                : "menu-app__header"
+            }
+          >
+            <p className="menu-app__eyebrow">余りもので</p>
+            <h1 className="menu-app__title">
+              {appPage === "history" ? "履歴一覧" : "献立提案"}
+            </h1>
             <p className="menu-app__subtitle">
               <span className="menu-app__subtitle-name">{loginId}</span>
-              さんのキッチン
+              さんの{appPage === "history" ? "履歴" : "キッチン"}
             </p>
+            <div className="menu-app__header-actions">
+              {appPage === "history" ? (
+                <button
+                  type="button"
+                  className="menu-app__secondary-btn"
+                  onClick={() => setAppPage("home")}
+                >
+                  献立提案へ戻る
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="menu-app__secondary-btn"
+                  onClick={() => setAppPage("history")}
+                >
+                  履歴を見る
+                </button>
+              )}
+            </div>
           </header>
 
+          {appPage === "history" ? (
+            <>
+              <section
+                className="menu-app__panel menu-app__panel--history-page"
+                aria-label="提案履歴一覧"
+              >
+                {historySectionContent}
+              </section>
+
+              <footer className="menu-app__footer">
+                <button
+                  type="button"
+                  className="menu-app__signout"
+                  onClick={signOut}
+                >
+                  サインアウト
+                </button>
+              </footer>
+            </>
+          ) : (
+            <>
           <section
             className="menu-app__panel menu-app__panel--input"
             aria-label="食材の入力"
@@ -889,39 +920,39 @@ function App() {
                       <li key={`${s.title}-${i}`} className="menu-app__card">
                         <details className="menu-app__history-details">
                           <summary className="menu-app__history-summary">
-                            <div className="menu-app__history-meta">
-                              <div className="menu-app__history-main">
+                            <div className="menu-app__card-head menu-app__card-head--summary">
+                              <div className="menu-app__favorite-headline">
                                 <h3 className="menu-app__card-title">
                                   {s.title}(1人前)
                                 </h3>
-                                <button
-                                  type="button"
-                                  className={
-                                    isFavorited
-                                      ? "menu-app__favorite-btn menu-app__favorite-btn--active"
-                                      : "menu-app__favorite-btn"
-                                  }
-                                  aria-label={
-                                    isFavorited
-                                      ? "お気に入りを解除"
-                                      : "お気に入りに追加"
-                                  }
-                                  aria-pressed={isFavorited}
-                                  disabled={isFavoritePending(favoriteDishKey)}
-                                  onClick={(event) =>
-                                    handleFavoriteToggleClick(
-                                      event,
-                                      createFavoriteSourceFromSuggestion(
-                                        s,
-                                        ingredientText.trim(),
-                                        suggestionHistoryIds[favoriteKey]
-                                      )
-                                    )
-                                  }
-                                >
-                                  {isFavorited ? "★" : "☆"}
-                                </button>
                               </div>
+                              <button
+                                type="button"
+                                className={
+                                  isFavorited
+                                    ? "menu-app__favorite-btn menu-app__favorite-btn--active"
+                                    : "menu-app__favorite-btn"
+                                }
+                                aria-label={
+                                  isFavorited
+                                    ? "お気に入りを解除"
+                                    : "お気に入りに追加"
+                                }
+                                aria-pressed={isFavorited}
+                                disabled={isFavoritePending(favoriteDishKey)}
+                                onClick={(event) =>
+                                  handleFavoriteToggleClick(
+                                    event,
+                                    createFavoriteSourceFromSuggestion(
+                                      s,
+                                      ingredientText.trim(),
+                                      suggestionHistoryIds[favoriteKey]
+                                    )
+                                  )
+                                }
+                              >
+                                {isFavorited ? "★" : "☆"}
+                              </button>
                             </div>
                           </summary>
                           <div className="menu-app__card-body menu-app__history-content">
@@ -1078,99 +1109,11 @@ function App() {
               サインアウト
             </button>
           </footer>
+            </>
+          )}
         </div>
       </main>
 
-      <aside className="menu-app__sidebar menu-app__sidebar--right" aria-label="おすすめ料理">
-        <div className="menu-app__sidebar-inner">
-          <section className="menu-app__sidebar-section">
-            <div className="menu-app__history-head">
-              <h2 className="menu-app__results-heading">おすすめ料理</h2>
-              <p className="menu-app__history-caption">まずは今日の献立候補を3つ表示</p>
-            </div>
-
-            {recommendedError ? (
-              <p className="menu-app__history-message" role="status">
-                {recommendedError}
-              </p>
-            ) : null}
-
-            {recommendedLoading ? (
-              <p className="menu-app__loading-results" aria-live="polite">
-                おすすめ料理を読み込んでいます…
-              </p>
-            ) : recommendedMenus.length === 0 ? (
-              <p className="menu-app__empty-body menu-app__empty-body--solo">
-                おすすめ料理を表示できませんでした。しばらくしてから再度お試しください。
-              </p>
-            ) : (
-              <ol className="menu-app__cards">
-                {recommendedMenus.map((menu, index) => {
-                  const favoriteDishKey = normalizeDishTitleKey(menu.title);
-                  const isFavorited = favoriteDishKeySet.has(favoriteDishKey);
-                  const structured = parseSuggestedRecipe(menu.note);
-                  const ingredients =
-                    structured.ingredients.length > 0
-                      ? structured.ingredients
-                      : menu.uses.map((name) => ({ name, amount: "" }));
-
-                  return (
-                    <li key={`${menu.title}-${index}`} className="menu-app__card">
-                      <details className="menu-app__history-details">
-                        <summary className="menu-app__history-summary">
-                          <div className="menu-app__history-meta">
-                            <div className="menu-app__history-main">
-                              <h3 className="menu-app__card-title">{menu.title}(1人前)</h3>
-                              <button
-                                type="button"
-                                className={
-                                  isFavorited
-                                    ? "menu-app__favorite-btn menu-app__favorite-btn--active"
-                                    : "menu-app__favorite-btn"
-                                }
-                                aria-label={
-                                  isFavorited
-                                    ? "お気に入りを解除"
-                                    : "お気に入りに追加"
-                                }
-                                aria-pressed={isFavorited}
-                                disabled={isFavoritePending(favoriteDishKey)}
-                                onClick={(event) =>
-                                  handleFavoriteToggleClick(
-                                    event,
-                                    createFavoriteSourceFromSuggestion(
-                                      menu,
-                                      RECOMMENDATION_SOURCE_LABEL
-                                    )
-                                  )
-                                }
-                              >
-                                {isFavorited ? "★" : "☆"}
-                              </button>
-                            </div>
-                          </div>
-                        </summary>
-                        <div className="menu-app__card-body menu-app__history-content">
-                          <p className="menu-app__history-input">
-                            入力食材: {RECOMMENDATION_SOURCE_LABEL}
-                          </p>
-                          {renderRecipeLayout({
-                            ingredients,
-                            steps: structured.steps,
-                            fallbackRecipe: menu.note,
-                            keyPrefix: `${menu.title}-${index}`,
-                            combineIngredientAndAmount: true,
-                          })}
-                        </div>
-                      </details>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </section>
-        </div>
-      </aside>
     </div>
   );
 }
