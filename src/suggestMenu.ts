@@ -17,6 +17,7 @@ export type MenuSuggestion = {
   note: string;
   servings: number;
   cuisinePreference: CuisinePreference;
+  targetCalories: number | null;
 };
 
 export type MenuHistoryEntry = {
@@ -28,6 +29,7 @@ export type MenuHistoryEntry = {
   usedIngredients: string[];
   servings: number;
   cuisinePreference: CuisinePreference;
+  targetCalories: number | null;
   savedAt: string;
 };
 
@@ -41,6 +43,7 @@ export type FavoriteMenuEntry = {
   usedIngredients: string[];
   servings: number;
   cuisinePreference: CuisinePreference;
+  targetCalories: number | null;
   imagePath: string | null;
   favoritedAt: string;
   sourceHistoryId: string | null;
@@ -106,6 +109,10 @@ function normalizeCuisinePreference(
     default:
       return "default";
   }
+}
+
+function normalizeTargetCalories(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 export function normalizeDishTitleKey(dishTitle: string): string {
@@ -324,6 +331,7 @@ function normalizeHistoryEntry(
     servings:
       typeof entry.servings === "number" && entry.servings > 0 ? entry.servings : 1,
     cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
+    targetCalories: normalizeTargetCalories(entry.targetCalories),
     savedAt: entry.savedAt ?? new Date(0).toISOString(),
   };
 }
@@ -352,6 +360,7 @@ function normalizeFavoriteEntry(
     servings:
       typeof entry.servings === "number" && entry.servings > 0 ? entry.servings : 1,
     cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
+    targetCalories: normalizeTargetCalories(entry.targetCalories),
     imagePath: normalizeNullableString(entry.imagePath),
     favoritedAt: entry.favoritedAt ?? new Date(0).toISOString(),
     sourceHistoryId: normalizeNullableString(entry.sourceHistoryId),
@@ -405,12 +414,14 @@ function dedupeFavoritesByDishTitle(entries: FavoriteMenuEntry[]): FavoriteMenuE
 export async function fetchMenuSuggestions(
   ingredientText: string,
   servings: number,
-  cuisinePreference: CuisinePreference
+  cuisinePreference: CuisinePreference,
+  targetCalories: number | null
 ): Promise<MenuSuggestion[]> {
   const text = ingredientText.trim();
   const normalizedServings =
     Number.isInteger(servings) && servings > 0 ? servings : 1;
   const normalizedCuisinePreference = normalizeCuisinePreference(cuisinePreference);
+  const normalizedTargetCalories = normalizeTargetCalories(targetCalories);
   if (!text) {
     return [
       {
@@ -419,6 +430,7 @@ export async function fetchMenuSuggestions(
         note: "例: 卵、玉ねぎ、しめじ（カンマまたは改行で区切れます）",
         servings: normalizedServings,
         cuisinePreference: normalizedCuisinePreference,
+        targetCalories: normalizedTargetCalories,
       },
     ];
   }
@@ -427,6 +439,7 @@ export async function fetchMenuSuggestions(
     ingredientText: text,
     servings: normalizedServings,
     cuisinePreference: normalizedCuisinePreference,
+    targetCalories: normalizedTargetCalories ?? undefined,
   });
 
   if (errors?.length) {
@@ -446,6 +459,7 @@ export async function fetchMenuSuggestions(
       note: data.recipe ?? "",
       servings: normalizedServings,
       cuisinePreference: normalizedCuisinePreference,
+      targetCalories: normalizedTargetCalories,
     },
   ];
 }
@@ -465,6 +479,7 @@ export async function saveMenuHistory(input: {
       usedIngredients: input.suggestion.uses,
       servings: input.suggestion.servings,
       cuisinePreference: input.suggestion.cuisinePreference,
+      targetCalories: input.suggestion.targetCalories,
       savedAt,
     },
     {
@@ -490,6 +505,7 @@ export async function saveMenuHistory(input: {
     usedIngredients: normalizeStringArray(data.usedIngredients),
     servings: data.servings ?? undefined,
     cuisinePreference: normalizeCuisinePreference(data.cuisinePreference),
+    targetCalories: data.targetCalories ?? undefined,
     savedAt: data.savedAt ?? savedAt,
   });
 }
@@ -525,6 +541,7 @@ export async function fetchMenuHistory(
       usedIngredients: normalizeStringArray(entry.usedIngredients),
       servings: entry.servings ?? undefined,
       cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
+      targetCalories: entry.targetCalories ?? undefined,
       savedAt: entry.savedAt,
     })
   );
@@ -587,6 +604,7 @@ async function listFavoritePage(
         usedIngredients: normalizeStringArray(entry.usedIngredients),
         servings: entry.servings ?? undefined,
         cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
+        targetCalories: entry.targetCalories ?? undefined,
         imagePath: entry.imagePath,
         favoritedAt: entry.favoritedAt,
         sourceHistoryId: entry.sourceHistoryId,
@@ -617,6 +635,7 @@ export async function createFavorite(input: {
   usedIngredients: readonly string[];
   servings: number;
   cuisinePreference: CuisinePreference;
+  targetCalories: number | null;
   sourceHistoryId?: string | null;
 }): Promise<FavoriteMenuEntry> {
   const favoriteKey = buildFavoriteMenuKey({
@@ -646,6 +665,7 @@ export async function createFavorite(input: {
       usedIngredients: [...input.usedIngredients],
       servings: input.servings,
       cuisinePreference: input.cuisinePreference,
+      targetCalories: input.targetCalories,
       imagePath: null,
       favoritedAt,
       sourceHistoryId: normalizeNullableString(input.sourceHistoryId),
@@ -674,6 +694,7 @@ export async function createFavorite(input: {
     usedIngredients: normalizeStringArray(data.usedIngredients),
     servings: data.servings ?? undefined,
     cuisinePreference: normalizeCuisinePreference(data.cuisinePreference),
+    targetCalories: data.targetCalories ?? undefined,
     imagePath: data.imagePath,
     favoritedAt: data.favoritedAt ?? favoritedAt,
     sourceHistoryId: data.sourceHistoryId,

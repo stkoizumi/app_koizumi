@@ -75,6 +75,7 @@ type FavoriteSource = {
   usedIngredients: string[];
   servings: number;
   cuisinePreference: CuisinePreference;
+  targetCalories: number | null;
   sourceHistoryId?: string | null;
 };
 
@@ -86,7 +87,7 @@ type DisplayIngredient = {
 };
 
 const CUISINE_OPTIONS: Array<{ value: CuisinePreference; label: string }> = [
-  { value: "default", label: "デフォルト" },
+  { value: "default", label: "指定なし" },
   { value: "washoku", label: "和食" },
   { value: "yoshoku", label: "洋食" },
   { value: "chuka", label: "中華" },
@@ -103,6 +104,7 @@ function createFavoriteSourceFromHistory(entry: MenuHistoryEntry): FavoriteSourc
     usedIngredients: entry.usedIngredients,
     servings: entry.servings,
     cuisinePreference: entry.cuisinePreference,
+    targetCalories: entry.targetCalories,
     sourceHistoryId: entry.id,
   };
 }
@@ -119,6 +121,7 @@ function createFavoriteSourceFromSuggestion(
     usedIngredients: suggestion.uses,
     servings: suggestion.servings,
     cuisinePreference: suggestion.cuisinePreference,
+    targetCalories: suggestion.targetCalories,
     sourceHistoryId,
   };
 }
@@ -131,8 +134,14 @@ function formatServingsLabel(servings: number): string {
 function formatCuisineLabel(cuisinePreference: CuisinePreference): string {
   return (
     CUISINE_OPTIONS.find((option) => option.value === cuisinePreference)?.label ??
-    "デフォルト"
+    "指定なし"
   );
+}
+
+function formatTargetCaloriesLabel(targetCalories: number | null | undefined): string | null {
+  return typeof targetCalories === "number" && targetCalories > 0
+    ? `${targetCalories}kcal前後`
+    : null;
 }
 
 function renderRecipeLayout(input: {
@@ -192,6 +201,7 @@ function App() {
   const [servingsInput, setServingsInput] = useState("1");
   const [cuisinePreference, setCuisinePreference] =
     useState<CuisinePreference>("default");
+  const [targetCaloriesInput, setTargetCaloriesInput] = useState("");
   const [suggestions, setSuggestions] = useState<MenuSuggestion[]>([]);
   const [history, setHistory] = useState<MenuHistoryEntry[]>([]);
   const [favorites, setFavorites] = useState<FavoriteMenuEntry[]>([]);
@@ -378,6 +388,7 @@ function App() {
           usedIngredients: source.usedIngredients,
           servings: source.servings,
           cuisinePreference: source.cuisinePreference,
+          targetCalories: source.targetCalories,
           sourceHistoryId: source.sourceHistoryId,
         });
 
@@ -559,13 +570,25 @@ function App() {
       return;
     }
 
+    const parsedTargetCalories = targetCaloriesInput.trim()
+      ? Number(targetCaloriesInput)
+      : null;
+    if (
+      parsedTargetCalories !== null &&
+      (!Number.isInteger(parsedTargetCalories) || parsedTargetCalories < 1)
+    ) {
+      setError("カロリーは1以上の整数で入力してください");
+      return;
+    }
+
     setLoading(true);
     setHasRequested(true);
     try {
       const next = await fetchMenuSuggestions(
         text,
         parsedServings,
-        cuisinePreference
+        cuisinePreference,
+        parsedTargetCalories
       );
       setSuggestions(next);
       setResultsView("suggestions");
@@ -707,6 +730,11 @@ function App() {
                     <p className="menu-app__history-input">
                       入力食材: {entry.ingredientText}
                     </p>
+                    {formatTargetCaloriesLabel(entry.targetCalories) ? (
+                      <p className="menu-app__history-meta-text">
+                        カロリー条件: {formatTargetCaloriesLabel(entry.targetCalories)}
+                      </p>
+                    ) : null}
                     {renderRecipeLayout({
                       ingredients: displayIngredients,
                       steps: structured.steps,
@@ -802,9 +830,6 @@ function App() {
             aria-busy={loading}
           >
             <div className="menu-app__panel-head">
-              <label htmlFor="ingredients" className="menu-app__label">
-                余りもの・使いたい食材
-              </label>
               {ingredientText.trim().length > 0 ? (
                 <button
                   type="button"
@@ -815,8 +840,14 @@ function App() {
                 </button>
               ) : null}
             </div>
-            <div className="menu-app__servings-row">
-              <div className="menu-app__number-field">
+            <div className="menu-app__field-row">
+              <label htmlFor="servings" className="menu-app__label">
+                量
+              </label>
+              <div className="menu-app__control-group">
+                <span className="menu-app__control-spacer" aria-hidden>
+                  1人あたり
+                </span>
                 <input
                   id="servings"
                   type="number"
@@ -835,22 +866,54 @@ function App() {
               <label htmlFor="cuisine-preference" className="menu-app__label">
                 ジャンル
               </label>
-              <select
-                id="cuisine-preference"
-                className="menu-app__select-input"
-                value={cuisinePreference}
-                onChange={(event) =>
-                  setCuisinePreference(event.target.value as CuisinePreference)
-                }
-                disabled={loading}
-              >
-                {CUISINE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <div className="menu-app__control-group">
+                <span className="menu-app__control-spacer" aria-hidden>
+                  1人あたり
+                </span>
+                <select
+                  id="cuisine-preference"
+                  className="menu-app__select-input"
+                  value={cuisinePreference}
+                  onChange={(event) =>
+                    setCuisinePreference(event.target.value as CuisinePreference)
+                  }
+                  disabled={loading}
+                >
+                  {CUISINE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="menu-app__control-spacer" aria-hidden>
+                  kcal前後
+                </span>
+              </div>
             </div>
+            <div className="menu-app__field-row">
+              <label htmlFor="target-calories" className="menu-app__label">
+                カロリー
+              </label>
+              <div className="menu-app__control-group">
+                <span className="menu-app__number-prefix">1人あたり</span>
+                <input
+                  id="target-calories"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  step="1"
+                  className="menu-app__number-input"
+                  placeholder="指定なし"
+                  value={targetCaloriesInput}
+                  onChange={(event) => setTargetCaloriesInput(event.target.value)}
+                  disabled={loading}
+                />
+                <span className="menu-app__number-unit">kcal前後</span>
+              </div>
+            </div>
+            <label htmlFor="ingredients" className="menu-app__label">
+              余りもの・使いたい食材
+            </label>
             <textarea
               id="ingredients"
               className="menu-app__textarea"
@@ -1038,6 +1101,11 @@ function App() {
                             <p className="menu-app__history-input">
                               入力食材: {ingredientText.trim()}
                             </p>
+                            {formatTargetCaloriesLabel(s.targetCalories) ? (
+                              <p className="menu-app__history-meta-text">
+                                カロリー条件: {formatTargetCaloriesLabel(s.targetCalories)}
+                              </p>
+                            ) : null}
                             {renderRecipeLayout({
                               ingredients,
                               steps: structured.steps,
@@ -1114,8 +1182,9 @@ function App() {
                                     dishTitle: entry.dishTitle,
                                     recipe: entry.recipe,
                                     usedIngredients: entry.usedIngredients,
-                                  servings: entry.servings,
-                                  cuisinePreference: entry.cuisinePreference,
+                                    servings: entry.servings,
+                                    cuisinePreference: entry.cuisinePreference,
+                                    targetCalories: entry.targetCalories,
                                     sourceHistoryId: entry.sourceHistoryId,
                                   })
                                 }
@@ -1129,6 +1198,11 @@ function App() {
                           <p className="menu-app__history-input">
                             入力食材: {entry.ingredientText}
                           </p>
+                          {formatTargetCaloriesLabel(entry.targetCalories) ? (
+                            <p className="menu-app__history-meta-text">
+                              カロリー条件: {formatTargetCaloriesLabel(entry.targetCalories)}
+                            </p>
+                          ) : null}
                           <section className="menu-app__favorite-image-section">
                             {imageUrl ? (
                               <img

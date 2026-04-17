@@ -11,6 +11,7 @@ const schema = a.schema({
       usedIngredients: a.string().array(),
       servings: a.integer(),
       cuisinePreference: a.string(),
+      targetCalories: a.integer(),
       savedAt: a.string().required(),
     })
     .secondaryIndexes((index) => [
@@ -28,6 +29,7 @@ const schema = a.schema({
       usedIngredients: a.string().array(),
       servings: a.integer(),
       cuisinePreference: a.string(),
+      targetCalories: a.integer(),
       imagePath: a.string(),
       favoritedAt: a.string().required(),
       sourceHistoryId: a.string(),
@@ -49,6 +51,7 @@ const schema = a.schema({
       ingredientText: a.string(),
       servings: a.integer(),
       cuisinePreference: a.string(),
+      targetCalories: a.integer(),
     })
     .returns(a.ref("SuggestMenuResponse"))
     .authorization((allow) => [allow.authenticated()])

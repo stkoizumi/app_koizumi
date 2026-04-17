@@ -42,9 +42,22 @@ function buildCuisineInstruction(cuisinePreference: CuisinePreference): string {
   return `料理ジャンルは${CUISINE_LABELS[cuisinePreference]}指定です。料理名、味付け、使用する調味料、調理の方向性をこのジャンルに合わせて提案してください。`;
 }
 
+function normalizeTargetCalories(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function buildCalorieInstruction(targetCalories: number | null): string {
+  if (targetCalories === null) {
+    return "カロリー条件は未指定です。材料と他の条件を優先して自然な献立を提案してください。";
+  }
+
+  return `目標カロリーは1人前あたり約${targetCalories}kcalです。材料を最優先にしつつ、この目標にできるだけ近づけてください。厳密一致は不要ですが、明らかに大きく外れないようにしてください。`;
+}
+
 function buildSystemPrompt(
   servings: number,
-  cuisinePreference: CuisinePreference
+  cuisinePreference: CuisinePreference,
+  targetCalories: number | null
 ): string {
   return `あなたはプロの料理研究家です。ユーザーの入力（手持ちの食材や要望の文章）を材料にし、次の条件をすべて満たす献立を「1つだけ」提案してください。
 
@@ -66,6 +79,7 @@ ${NOT_FOOD_TITLE}
 - 指定された食材をできるだけ活用すること。足りない場合は一般的な調味料やよくある食材の追記を簡潔に含めてよい
 - 分量は${servings}人前であること
 - ${buildCuisineInstruction(cuisinePreference)}
+- ${buildCalorieInstruction(targetCalories)}
 
 出力は次のフォーマットに厳密に従い、前置き・挨拶・解説は書かないこと。
 - 材料は必ず「材料名 | 分量」の形式で1行ずつ書くこと
@@ -116,6 +130,11 @@ export const handler: Schema["suggestMenu"]["functionHandler"] = async (
       ? event.arguments.cuisinePreference
       : undefined
   );
+  const targetCalories = normalizeTargetCalories(
+    typeof event.arguments.targetCalories === "number"
+      ? event.arguments.targetCalories
+      : undefined
+  );
   if (!ingredientText) {
     return {
       title: "食材を入力してください",
@@ -133,14 +152,22 @@ export const handler: Schema["suggestMenu"]["functionHandler"] = async (
 
   const userMessage =
     cuisinePreference === "default"
-      ? `以下を踏まえて${requestedServings}人前の献立を1つだけ提案してください。\n\n${ingredientText}`
-      : `以下を踏まえて${requestedServings}人前で、${CUISINE_LABELS[cuisinePreference]}寄りの献立を1つだけ提案してください。\n\n${ingredientText}`;
+      ? targetCalories === null
+        ? `以下を踏まえて${requestedServings}人前の献立を1つだけ提案してください。\n\n${ingredientText}`
+        : `以下を踏まえて${requestedServings}人前で、1人前あたり約${targetCalories}kcalを目安にした献立を1つだけ提案してください。\n\n${ingredientText}`
+      : targetCalories === null
+        ? `以下を踏まえて${requestedServings}人前で、${CUISINE_LABELS[cuisinePreference]}寄りの献立を1つだけ提案してください。\n\n${ingredientText}`
+        : `以下を踏まえて${requestedServings}人前で、${CUISINE_LABELS[cuisinePreference]}寄りかつ1人前あたり約${targetCalories}kcalを目安にした献立を1つだけ提案してください。\n\n${ingredientText}`;
 
   const body = JSON.stringify({
     anthropic_version: "bedrock-2023-05-31",
     max_tokens: 2048,
     temperature: 0.6,
-    system: buildSystemPrompt(requestedServings, cuisinePreference),
+    system: buildSystemPrompt(
+      requestedServings,
+      cuisinePreference,
+      targetCalories
+    ),
     messages: [
       {
         role: "user",
