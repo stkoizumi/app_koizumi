@@ -6,6 +6,7 @@ import {
   createFavorite,
   deleteMenuHistory,
   deleteFavorite,
+  type CuisinePreference,
   fetchFavorites,
   type MenuHistoryEntry,
   type MenuSuggestion,
@@ -72,6 +73,8 @@ type FavoriteSource = {
   dishTitle: string;
   recipe: string;
   usedIngredients: string[];
+  servings: number;
+  cuisinePreference: CuisinePreference;
   sourceHistoryId?: string | null;
 };
 
@@ -82,12 +85,24 @@ type DisplayIngredient = {
   amount: string;
 };
 
+const CUISINE_OPTIONS: Array<{ value: CuisinePreference; label: string }> = [
+  { value: "default", label: "デフォルト" },
+  { value: "washoku", label: "和食" },
+  { value: "yoshoku", label: "洋食" },
+  { value: "chuka", label: "中華" },
+  { value: "italian", label: "イタリアン" },
+  { value: "french", label: "フレンチ" },
+  { value: "ethnic", label: "エスニック" },
+];
+
 function createFavoriteSourceFromHistory(entry: MenuHistoryEntry): FavoriteSource {
   return {
     ingredientText: entry.ingredientText,
     dishTitle: entry.dishTitle,
     recipe: entry.recipe,
     usedIngredients: entry.usedIngredients,
+    servings: entry.servings,
+    cuisinePreference: entry.cuisinePreference,
     sourceHistoryId: entry.id,
   };
 }
@@ -102,8 +117,22 @@ function createFavoriteSourceFromSuggestion(
     dishTitle: suggestion.title,
     recipe: suggestion.note,
     usedIngredients: suggestion.uses,
+    servings: suggestion.servings,
+    cuisinePreference: suggestion.cuisinePreference,
     sourceHistoryId,
   };
+}
+
+function formatServingsLabel(servings: number): string {
+  const normalized = Number.isInteger(servings) && servings > 0 ? servings : 1;
+  return `${normalized}人前`;
+}
+
+function formatCuisineLabel(cuisinePreference: CuisinePreference): string {
+  return (
+    CUISINE_OPTIONS.find((option) => option.value === cuisinePreference)?.label ??
+    "デフォルト"
+  );
 }
 
 function renderRecipeLayout(input: {
@@ -111,12 +140,16 @@ function renderRecipeLayout(input: {
   steps: string[];
   fallbackRecipe: string;
   keyPrefix: string;
+  hideStepDividers?: boolean;
 }) {
   const rowCount = Math.max(input.ingredients.length, input.steps.length, 1);
+  const tableClassName = input.hideStepDividers
+    ? "menu-app__recipe-table menu-app__recipe-table--merged-steps"
+    : "menu-app__recipe-table";
 
   return (
     <div className="menu-app__recipe-layout">
-      <table className="menu-app__recipe-table">
+      <table className={tableClassName}>
         <thead>
           <tr>
             <th scope="col">材料名</th>
@@ -156,6 +189,9 @@ function App() {
   const { user, signOut } = useAuthenticator();
   const location = useLocation();
   const [ingredientText, setIngredientText] = useState("");
+  const [servingsInput, setServingsInput] = useState("1");
+  const [cuisinePreference, setCuisinePreference] =
+    useState<CuisinePreference>("default");
   const [suggestions, setSuggestions] = useState<MenuSuggestion[]>([]);
   const [history, setHistory] = useState<MenuHistoryEntry[]>([]);
   const [favorites, setFavorites] = useState<FavoriteMenuEntry[]>([]);
@@ -340,6 +376,8 @@ function App() {
           dishTitle: source.dishTitle,
           recipe: source.recipe,
           usedIngredients: source.usedIngredients,
+          servings: source.servings,
+          cuisinePreference: source.cuisinePreference,
           sourceHistoryId: source.sourceHistoryId,
         });
 
@@ -515,10 +553,20 @@ function App() {
       return;
     }
 
+    const parsedServings = Number(servingsInput);
+    if (!Number.isInteger(parsedServings) || parsedServings < 1) {
+      setError("人数は1以上の整数で入力してください");
+      return;
+    }
+
     setLoading(true);
     setHasRequested(true);
     try {
-      const next = await fetchMenuSuggestions(text);
+      const next = await fetchMenuSuggestions(
+        text,
+        parsedServings,
+        cuisinePreference
+      );
       setSuggestions(next);
       setResultsView("suggestions");
       setSuggestionHistoryIds(
@@ -617,7 +665,14 @@ function App() {
                     <div className="menu-app__history-meta">
                       <div className="menu-app__history-main">
                         <h3 className="menu-app__card-title">
-                          {entry.dishTitle}(1人前)
+                          <span className="menu-app__card-title-row">
+                            <span>{entry.dishTitle}({formatServingsLabel(entry.servings)})</span>
+                            {entry.cuisinePreference !== "default" ? (
+                              <span className="menu-app__cuisine-badge">
+                                {formatCuisineLabel(entry.cuisinePreference)}
+                              </span>
+                            ) : null}
+                          </span>
                         </h3>
                         <time
                           className="menu-app__history-time"
@@ -759,6 +814,42 @@ function App() {
                   入力をクリア
                 </button>
               ) : null}
+            </div>
+            <div className="menu-app__servings-row">
+              <div className="menu-app__number-field">
+                <input
+                  id="servings"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  step="1"
+                  className="menu-app__number-input"
+                  value={servingsInput}
+                  onChange={(event) => setServingsInput(event.target.value)}
+                  disabled={loading}
+                />
+                <span className="menu-app__number-unit">人分</span>
+              </div>
+            </div>
+            <div className="menu-app__field-row">
+              <label htmlFor="cuisine-preference" className="menu-app__label">
+                ジャンル
+              </label>
+              <select
+                id="cuisine-preference"
+                className="menu-app__select-input"
+                value={cuisinePreference}
+                onChange={(event) =>
+                  setCuisinePreference(event.target.value as CuisinePreference)
+                }
+                disabled={loading}
+              >
+                {CUISINE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <textarea
               id="ingredients"
@@ -904,7 +995,14 @@ function App() {
                             <div className="menu-app__card-head menu-app__card-head--summary">
                               <div className="menu-app__favorite-headline">
                                 <h3 className="menu-app__card-title">
-                                  {s.title}(1人前)
+                                  <span className="menu-app__card-title-row">
+                                    <span>{s.title}({formatServingsLabel(s.servings)})</span>
+                                    {s.cuisinePreference !== "default" ? (
+                                      <span className="menu-app__cuisine-badge">
+                                        {formatCuisineLabel(s.cuisinePreference)}
+                                      </span>
+                                    ) : null}
+                                  </span>
                                 </h3>
                               </div>
                               <button
@@ -945,6 +1043,7 @@ function App() {
                               steps: structured.steps,
                               fallbackRecipe: s.note,
                               keyPrefix: `${s.title}-${i}`,
+                              hideStepDividers: true,
                             })}
                           </div>
                         </details>
@@ -986,7 +1085,14 @@ function App() {
                           <div className="menu-app__history-meta">
                             <div className="menu-app__favorite-headline">
                               <h3 className="menu-app__card-title">
-                                {entry.dishTitle}(1人前)
+                                <span className="menu-app__card-title-row">
+                                  <span>{entry.dishTitle}({formatServingsLabel(entry.servings)})</span>
+                                  {entry.cuisinePreference !== "default" ? (
+                                    <span className="menu-app__cuisine-badge">
+                                      {formatCuisineLabel(entry.cuisinePreference)}
+                                    </span>
+                                  ) : null}
+                                </span>
                               </h3>
                               <time
                                 className="menu-app__history-time"
@@ -1008,6 +1114,8 @@ function App() {
                                     dishTitle: entry.dishTitle,
                                     recipe: entry.recipe,
                                     usedIngredients: entry.usedIngredients,
+                                  servings: entry.servings,
+                                  cuisinePreference: entry.cuisinePreference,
                                     sourceHistoryId: entry.sourceHistoryId,
                                   })
                                 }
@@ -1075,6 +1183,7 @@ function App() {
                             steps: structured.steps,
                             fallbackRecipe: entry.recipe,
                             keyPrefix: entry.id,
+                            hideStepDividers: true,
                           })}
                         </div>
                       </details>

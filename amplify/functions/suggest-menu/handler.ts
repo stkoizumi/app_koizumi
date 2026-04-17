@@ -5,11 +5,48 @@ import {
 import type { Schema } from "../../data/resource";
 
 const DEFAULT_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0";
+const CUISINE_LABELS = {
+  default: "デフォルト",
+  washoku: "和食",
+  yoshoku: "洋食",
+  chuka: "中華",
+  italian: "イタリアン",
+  french: "フレンチ",
+  ethnic: "エスニック",
+} as const;
 
 /** モデルが「食べ物・献立と無関係」と判断したときの料理名（Lambda で検知してエラーにする） */
 const NOT_FOOD_TITLE = "__NOT_FOOD__";
 
-const SYSTEM_PROMPT = `あなたはプロの料理研究家です。ユーザーの入力（手持ちの食材や要望の文章）を材料にし、次の条件をすべて満たす献立を「1つだけ」提案してください。
+type CuisinePreference = keyof typeof CUISINE_LABELS;
+
+function normalizeCuisinePreference(value: string | null | undefined): CuisinePreference {
+  switch (value) {
+    case "washoku":
+    case "yoshoku":
+    case "chuka":
+    case "italian":
+    case "french":
+    case "ethnic":
+      return value;
+    default:
+      return "default";
+  }
+}
+
+function buildCuisineInstruction(cuisinePreference: CuisinePreference): string {
+  if (cuisinePreference === "default") {
+    return "料理ジャンルはデフォルト指定です。入力された食材や要望に最も合うジャンルで自然に提案してください。";
+  }
+
+  return `料理ジャンルは${CUISINE_LABELS[cuisinePreference]}指定です。料理名、味付け、使用する調味料、調理の方向性をこのジャンルに合わせて提案してください。`;
+}
+
+function buildSystemPrompt(
+  servings: number,
+  cuisinePreference: CuisinePreference
+): string {
+  return `あなたはプロの料理研究家です。ユーザーの入力（手持ちの食材や要望の文章）を材料にし、次の条件をすべて満たす献立を「1つだけ」提案してください。
 
 まず入力内容を判断すること:
 - 入力に食材・献立・料理・調理にまったく関係しない単語（例: プログラムコード、計算式、天気や雑談のみ、仕事用の文書のみ、個人情報の羅列のみなど）が1つでも含まれる場合は、献立を提案してはならない。
@@ -27,15 +64,28 @@ ${NOT_FOOD_TITLE}
 - 足りない材料はなるべく少なくすること
 - 初心者でも20分以内で作れる手順にすること
 - 指定された食材をできるだけ活用すること。足りない場合は一般的な調味料やよくある食材の追記を簡潔に含めてよい
-- 分量は1人前であること
+- 分量は${servings}人前であること
+- ${buildCuisineInstruction(cuisinePreference)}
 
 出力は次のフォーマットに厳密に従い、前置き・挨拶・解説は書かないこと。
+- 材料は必ず「材料名 | 分量」の形式で1行ずつ書くこと
+- 分量は省略しないこと
+- 手順は「1.」「2.」のように番号付きで書くこと
 
 【料理名】
 （料理名のみ1行。献立と無関係な入力のときは必ず ${NOT_FOOD_TITLE} のみ）
 
 【レシピ】
-（材料と手順を読みやすく。分量の目安を含める。献立と無関係な入力のときは上記の固定文のみ）`;
+【材料】
+材料名 | 分量
+材料名 | 分量
+
+【手順】
+1. 手順
+2. 手順
+
+（献立と無関係な入力のときは上記の固定文のみ）`;
+}
 
 function parseMenuResponse(text: string): { title: string; recipe: string } {
   const titleMatch = text.match(/【料理名】\s*([\s\S]*?)(?=【レシピ】|$)/);
@@ -55,6 +105,17 @@ export const handler: Schema["suggestMenu"]["functionHandler"] = async (
   event
 ) => {
   const ingredientText = (event.arguments.ingredientText ?? "").trim();
+  const requestedServings =
+    typeof event.arguments.servings === "number" &&
+    Number.isInteger(event.arguments.servings) &&
+    event.arguments.servings > 0
+      ? event.arguments.servings
+      : 1;
+  const cuisinePreference = normalizeCuisinePreference(
+    typeof event.arguments.cuisinePreference === "string"
+      ? event.arguments.cuisinePreference
+      : undefined
+  );
   if (!ingredientText) {
     return {
       title: "食材を入力してください",
@@ -70,13 +131,16 @@ export const handler: Schema["suggestMenu"]["functionHandler"] = async (
   const modelId = process.env.MENU_SUGGEST_MODEL_ID ?? DEFAULT_MODEL_ID;
   const client = new BedrockRuntimeClient({ region });
 
-  const userMessage = `以下を踏まえて献立を1つだけ提案してください。\n\n${ingredientText}`;
+  const userMessage =
+    cuisinePreference === "default"
+      ? `以下を踏まえて${requestedServings}人前の献立を1つだけ提案してください。\n\n${ingredientText}`
+      : `以下を踏まえて${requestedServings}人前で、${CUISINE_LABELS[cuisinePreference]}寄りの献立を1つだけ提案してください。\n\n${ingredientText}`;
 
   const body = JSON.stringify({
     anthropic_version: "bedrock-2023-05-31",
     max_tokens: 2048,
     temperature: 0.6,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(requestedServings, cuisinePreference),
     messages: [
       {
         role: "user",

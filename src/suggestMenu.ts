@@ -2,10 +2,21 @@ import { generateClient } from "aws-amplify/data";
 import { getUrl, remove, uploadData } from "aws-amplify/storage";
 import type { Schema } from "../amplify/data/resource";
 
+export type CuisinePreference =
+  | "default"
+  | "washoku"
+  | "yoshoku"
+  | "chuka"
+  | "italian"
+  | "french"
+  | "ethnic";
+
 export type MenuSuggestion = {
   title: string;
   uses: string[];
   note: string;
+  servings: number;
+  cuisinePreference: CuisinePreference;
 };
 
 export type MenuHistoryEntry = {
@@ -15,6 +26,8 @@ export type MenuHistoryEntry = {
   dishTitle: string;
   recipe: string;
   usedIngredients: string[];
+  servings: number;
+  cuisinePreference: CuisinePreference;
   savedAt: string;
 };
 
@@ -26,6 +39,8 @@ export type FavoriteMenuEntry = {
   dishTitle: string;
   recipe: string;
   usedIngredients: string[];
+  servings: number;
+  cuisinePreference: CuisinePreference;
   imagePath: string | null;
   favoritedAt: string;
   sourceHistoryId: string | null;
@@ -77,6 +92,22 @@ function normalizeFavoriteKeyPart(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLocaleLowerCase("ja-JP");
 }
 
+function normalizeCuisinePreference(
+  value: string | null | undefined
+): CuisinePreference {
+  switch (value) {
+    case "washoku":
+    case "yoshoku":
+    case "chuka":
+    case "italian":
+    case "french":
+    case "ethnic":
+      return value;
+    default:
+      return "default";
+  }
+}
+
 export function normalizeDishTitleKey(dishTitle: string): string {
   return normalizeFavoriteKeyPart(dishTitle);
 }
@@ -97,7 +128,7 @@ export function buildFavoriteMenuKey(input: {
 }
 
 function isServingsLine(line: string): boolean {
-  return /^[（(]?\s*\d+\s*人分\s*[）)]?$/.test(line);
+  return /^[（(]?\s*\d+\s*人(?:分|前)\s*[）)]?$/.test(line);
 }
 
 function isIngredientHeader(line: string): boolean {
@@ -109,7 +140,10 @@ function isStepHeader(line: string): boolean {
 }
 
 function looksLikeAmount(text: string): boolean {
-  const normalized = text.trim();
+  const normalized = text
+    .trim()
+    .replace(/^[（(]\s*/, "")
+    .replace(/\s*[）)]$/, "");
   if (!normalized) {
     return false;
   }
@@ -134,6 +168,14 @@ function parseIngredientLine(line: string): RecipeIngredient {
     return {
       name: colonMatch[1]?.trim() ?? "",
       amount: colonMatch[2]?.trim() ?? "",
+    };
+  }
+
+  const wrappedAmountMatch = cleaned.match(/^(.+?)[（(]\s*([^()（）]+?)\s*[）)]$/);
+  if (wrappedAmountMatch && looksLikeAmount(wrappedAmountMatch[2] ?? "")) {
+    return {
+      name: wrappedAmountMatch[1]?.trim() ?? cleaned,
+      amount: wrappedAmountMatch[2]?.trim() ?? "",
     };
   }
 
@@ -165,7 +207,11 @@ function looksLikeStructuredIngredientLine(line: string): boolean {
     return false;
   }
 
-  if (/^(.+?)[：:]\s*(.+)$/.test(cleaned) || /\s\|\s/.test(cleaned)) {
+  if (
+    /^(.+?)[：:]\s*(.+)$/.test(cleaned) ||
+    /\s\|\s/.test(cleaned) ||
+    /^(.+?)[（(]\s*([^()（）]+?)\s*[）)]$/.test(cleaned)
+  ) {
     return true;
   }
 
@@ -275,6 +321,9 @@ function normalizeHistoryEntry(
     dishTitle: entry.dishTitle ?? "",
     recipe: entry.recipe ?? "",
     usedIngredients: entry.usedIngredients ?? [],
+    servings:
+      typeof entry.servings === "number" && entry.servings > 0 ? entry.servings : 1,
+    cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
     savedAt: entry.savedAt ?? new Date(0).toISOString(),
   };
 }
@@ -300,6 +349,9 @@ function normalizeFavoriteEntry(
     dishTitle: entry.dishTitle ?? "",
     recipe: entry.recipe ?? "",
     usedIngredients: entry.usedIngredients ?? [],
+    servings:
+      typeof entry.servings === "number" && entry.servings > 0 ? entry.servings : 1,
+    cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
     imagePath: normalizeNullableString(entry.imagePath),
     favoritedAt: entry.favoritedAt ?? new Date(0).toISOString(),
     sourceHistoryId: normalizeNullableString(entry.sourceHistoryId),
@@ -351,21 +403,30 @@ function dedupeFavoritesByDishTitle(entries: FavoriteMenuEntry[]): FavoriteMenuE
 
 /** AppSync の suggestMenu クエリ（Lambda → Bedrock）を呼び出す。 */
 export async function fetchMenuSuggestions(
-  ingredientText: string
+  ingredientText: string,
+  servings: number,
+  cuisinePreference: CuisinePreference
 ): Promise<MenuSuggestion[]> {
   const text = ingredientText.trim();
+  const normalizedServings =
+    Number.isInteger(servings) && servings > 0 ? servings : 1;
+  const normalizedCuisinePreference = normalizeCuisinePreference(cuisinePreference);
   if (!text) {
     return [
       {
         title: "まずは食材を入れよう",
         uses: [],
         note: "例: 卵、玉ねぎ、しめじ（カンマまたは改行で区切れます）",
+        servings: normalizedServings,
+        cuisinePreference: normalizedCuisinePreference,
       },
     ];
   }
 
   const { data, errors } = await client.queries.suggestMenu({
     ingredientText: text,
+    servings: normalizedServings,
+    cuisinePreference: normalizedCuisinePreference,
   });
 
   if (errors?.length) {
@@ -383,6 +444,8 @@ export async function fetchMenuSuggestions(
       title: data.title ?? "献立",
       uses,
       note: data.recipe ?? "",
+      servings: normalizedServings,
+      cuisinePreference: normalizedCuisinePreference,
     },
   ];
 }
@@ -400,6 +463,8 @@ export async function saveMenuHistory(input: {
       dishTitle: input.suggestion.title,
       recipe: input.suggestion.note,
       usedIngredients: input.suggestion.uses,
+      servings: input.suggestion.servings,
+      cuisinePreference: input.suggestion.cuisinePreference,
       savedAt,
     },
     {
@@ -423,6 +488,8 @@ export async function saveMenuHistory(input: {
     dishTitle: data.dishTitle,
     recipe: data.recipe,
     usedIngredients: normalizeStringArray(data.usedIngredients),
+    servings: data.servings ?? undefined,
+    cuisinePreference: normalizeCuisinePreference(data.cuisinePreference),
     savedAt: data.savedAt ?? savedAt,
   });
 }
@@ -456,6 +523,8 @@ export async function fetchMenuHistory(
       dishTitle: entry.dishTitle,
       recipe: entry.recipe,
       usedIngredients: normalizeStringArray(entry.usedIngredients),
+      servings: entry.servings ?? undefined,
+      cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
       savedAt: entry.savedAt,
     })
   );
@@ -516,6 +585,8 @@ async function listFavoritePage(
         dishTitle: entry.dishTitle,
         recipe: entry.recipe,
         usedIngredients: normalizeStringArray(entry.usedIngredients),
+        servings: entry.servings ?? undefined,
+        cuisinePreference: normalizeCuisinePreference(entry.cuisinePreference),
         imagePath: entry.imagePath,
         favoritedAt: entry.favoritedAt,
         sourceHistoryId: entry.sourceHistoryId,
@@ -544,6 +615,8 @@ export async function createFavorite(input: {
   dishTitle: string;
   recipe: string;
   usedIngredients: readonly string[];
+  servings: number;
+  cuisinePreference: CuisinePreference;
   sourceHistoryId?: string | null;
 }): Promise<FavoriteMenuEntry> {
   const favoriteKey = buildFavoriteMenuKey({
@@ -571,6 +644,8 @@ export async function createFavorite(input: {
       dishTitle: input.dishTitle,
       recipe: input.recipe,
       usedIngredients: [...input.usedIngredients],
+      servings: input.servings,
+      cuisinePreference: input.cuisinePreference,
       imagePath: null,
       favoritedAt,
       sourceHistoryId: normalizeNullableString(input.sourceHistoryId),
@@ -597,6 +672,8 @@ export async function createFavorite(input: {
     dishTitle: data.dishTitle,
     recipe: data.recipe,
     usedIngredients: normalizeStringArray(data.usedIngredients),
+    servings: data.servings ?? undefined,
+    cuisinePreference: normalizeCuisinePreference(data.cuisinePreference),
     imagePath: data.imagePath,
     favoritedAt: data.favoritedAt ?? favoritedAt,
     sourceHistoryId: data.sourceHistoryId,

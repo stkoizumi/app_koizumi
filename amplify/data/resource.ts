@@ -9,6 +9,8 @@ const schema = a.schema({
       dishTitle: a.string().required(),
       recipe: a.string().required(),
       usedIngredients: a.string().array(),
+      servings: a.integer(),
+      cuisinePreference: a.string(),
       savedAt: a.string().required(),
     })
     .secondaryIndexes((index) => [
@@ -24,6 +26,8 @@ const schema = a.schema({
       dishTitle: a.string().required(),
       recipe: a.string().required(),
       usedIngredients: a.string().array(),
+      servings: a.integer(),
+      cuisinePreference: a.string(),
       imagePath: a.string(),
       favoritedAt: a.string().required(),
       sourceHistoryId: a.string(),
@@ -41,7 +45,11 @@ const schema = a.schema({
 
   suggestMenu: a
     .query()
-    .arguments({ ingredientText: a.string() })
+    .arguments({
+      ingredientText: a.string(),
+      servings: a.integer(),
+      cuisinePreference: a.string(),
+    })
     .returns(a.ref("SuggestMenuResponse"))
     .authorization((allow) => [allow.authenticated()])
     .handler(a.handler.function(suggestMenuFn)),
