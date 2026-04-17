@@ -13,6 +13,7 @@ export type CuisinePreference =
 
 export type MenuSuggestion = {
   title: string;
+  estimatedCalories: number | null;
   uses: string[];
   note: string;
   servings: number;
@@ -25,6 +26,7 @@ export type MenuHistoryEntry = {
   userId: string;
   ingredientText: string;
   dishTitle: string;
+  estimatedCalories: number | null;
   recipe: string;
   usedIngredients: string[];
   servings: number;
@@ -39,6 +41,7 @@ export type FavoriteMenuEntry = {
   favoriteKey: string;
   ingredientText: string;
   dishTitle: string;
+  estimatedCalories: number | null;
   recipe: string;
   usedIngredients: string[];
   servings: number;
@@ -326,6 +329,7 @@ function normalizeHistoryEntry(
     userId: entry.userId ?? "",
     ingredientText: entry.ingredientText ?? "",
     dishTitle: entry.dishTitle ?? "",
+    estimatedCalories: normalizeTargetCalories(entry.estimatedCalories),
     recipe: entry.recipe ?? "",
     usedIngredients: entry.usedIngredients ?? [],
     servings:
@@ -355,6 +359,7 @@ function normalizeFavoriteEntry(
     favoriteKey: entry.favoriteKey ?? "",
     ingredientText: entry.ingredientText ?? "",
     dishTitle: entry.dishTitle ?? "",
+    estimatedCalories: normalizeTargetCalories(entry.estimatedCalories),
     recipe: entry.recipe ?? "",
     usedIngredients: entry.usedIngredients ?? [],
     servings:
@@ -426,6 +431,7 @@ export async function fetchMenuSuggestions(
     return [
       {
         title: "まずは食材を入れよう",
+        estimatedCalories: null,
         uses: [],
         note: "例: 卵、玉ねぎ、しめじ（カンマまたは改行で区切れます）",
         servings: normalizedServings,
@@ -455,6 +461,7 @@ export async function fetchMenuSuggestions(
   return [
     {
       title: data.title ?? "献立",
+      estimatedCalories: normalizeTargetCalories(data.estimatedCalories),
       uses,
       note: data.recipe ?? "",
       servings: normalizedServings,
@@ -475,6 +482,7 @@ export async function saveMenuHistory(input: {
       userId: input.userId,
       ingredientText: input.ingredientText.trim(),
       dishTitle: input.suggestion.title,
+      estimatedCalories: input.suggestion.estimatedCalories,
       recipe: input.suggestion.note,
       usedIngredients: input.suggestion.uses,
       servings: input.suggestion.servings,
@@ -501,6 +509,7 @@ export async function saveMenuHistory(input: {
     userId: data.userId,
     ingredientText: data.ingredientText,
     dishTitle: data.dishTitle,
+    estimatedCalories: data.estimatedCalories ?? undefined,
     recipe: data.recipe,
     usedIngredients: normalizeStringArray(data.usedIngredients),
     servings: data.servings ?? undefined,
@@ -537,6 +546,7 @@ export async function fetchMenuHistory(
       userId: entry.userId,
       ingredientText: entry.ingredientText,
       dishTitle: entry.dishTitle,
+      estimatedCalories: entry.estimatedCalories ?? undefined,
       recipe: entry.recipe,
       usedIngredients: normalizeStringArray(entry.usedIngredients),
       servings: entry.servings ?? undefined,
@@ -600,6 +610,7 @@ async function listFavoritePage(
         favoriteKey: entry.favoriteKey,
         ingredientText: entry.ingredientText,
         dishTitle: entry.dishTitle,
+        estimatedCalories: entry.estimatedCalories ?? undefined,
         recipe: entry.recipe,
         usedIngredients: normalizeStringArray(entry.usedIngredients),
         servings: entry.servings ?? undefined,
@@ -631,6 +642,7 @@ export async function createFavorite(input: {
   userId: string;
   ingredientText: string;
   dishTitle: string;
+  estimatedCalories: number | null;
   recipe: string;
   usedIngredients: readonly string[];
   servings: number;
@@ -661,6 +673,7 @@ export async function createFavorite(input: {
       favoriteKey,
       ingredientText: input.ingredientText.trim(),
       dishTitle: input.dishTitle,
+      estimatedCalories: input.estimatedCalories,
       recipe: input.recipe,
       usedIngredients: [...input.usedIngredients],
       servings: input.servings,
@@ -690,6 +703,7 @@ export async function createFavorite(input: {
     favoriteKey: data.favoriteKey,
     ingredientText: data.ingredientText,
     dishTitle: data.dishTitle,
+    estimatedCalories: data.estimatedCalories ?? undefined,
     recipe: data.recipe,
     usedIngredients: normalizeStringArray(data.usedIngredients),
     servings: data.servings ?? undefined,
@@ -813,6 +827,7 @@ export async function uploadFavoriteImage(input: {
       favoriteKey: data.favoriteKey,
       ingredientText: data.ingredientText,
       dishTitle: data.dishTitle,
+      estimatedCalories: data.estimatedCalories ?? undefined,
       recipe: data.recipe,
       usedIngredients: normalizeStringArray(data.usedIngredients),
       imagePath: data.imagePath,
@@ -860,6 +875,7 @@ export async function removeFavoriteImage(input: {
     favoriteKey: data.favoriteKey,
     ingredientText: data.ingredientText,
     dishTitle: data.dishTitle,
+    estimatedCalories: data.estimatedCalories ?? undefined,
     recipe: data.recipe,
     usedIngredients: normalizeStringArray(data.usedIngredients),
     imagePath: data.imagePath,

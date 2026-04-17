@@ -71,6 +71,7 @@ function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string
 type FavoriteSource = {
   ingredientText: string;
   dishTitle: string;
+  estimatedCalories: number | null;
   recipe: string;
   usedIngredients: string[];
   servings: number;
@@ -100,6 +101,7 @@ function createFavoriteSourceFromHistory(entry: MenuHistoryEntry): FavoriteSourc
   return {
     ingredientText: entry.ingredientText,
     dishTitle: entry.dishTitle,
+    estimatedCalories: entry.estimatedCalories,
     recipe: entry.recipe,
     usedIngredients: entry.usedIngredients,
     servings: entry.servings,
@@ -117,6 +119,7 @@ function createFavoriteSourceFromSuggestion(
   return {
     ingredientText,
     dishTitle: suggestion.title,
+    estimatedCalories: suggestion.estimatedCalories,
     recipe: suggestion.note,
     usedIngredients: suggestion.uses,
     servings: suggestion.servings,
@@ -141,6 +144,14 @@ function formatCuisineLabel(cuisinePreference: CuisinePreference): string {
 function formatTargetCaloriesLabel(targetCalories: number | null | undefined): string | null {
   return typeof targetCalories === "number" && targetCalories > 0
     ? `${targetCalories}kcal前後`
+    : null;
+}
+
+function formatEstimatedCaloriesLabel(
+  estimatedCalories: number | null | undefined
+): string | null {
+  return typeof estimatedCalories === "number" && estimatedCalories > 0
+    ? `${estimatedCalories}kcal`
     : null;
 }
 
@@ -384,6 +395,7 @@ function App() {
           userId: currentUserId,
           ingredientText: source.ingredientText,
           dishTitle: source.dishTitle,
+          estimatedCalories: source.estimatedCalories,
           recipe: source.recipe,
           usedIngredients: source.usedIngredients,
           servings: source.servings,
@@ -697,6 +709,11 @@ function App() {
                             ) : null}
                           </span>
                         </h3>
+                        {formatEstimatedCaloriesLabel(entry.estimatedCalories) ? (
+                          <p className="menu-app__estimated-calories">
+                            {formatEstimatedCaloriesLabel(entry.estimatedCalories)}
+                          </p>
+                        ) : null}
                         <time
                           className="menu-app__history-time"
                           dateTime={entry.savedAt}
@@ -1067,6 +1084,11 @@ function App() {
                                     ) : null}
                                   </span>
                                 </h3>
+                                {formatEstimatedCaloriesLabel(s.estimatedCalories) ? (
+                                  <p className="menu-app__estimated-calories">
+                                    {formatEstimatedCaloriesLabel(s.estimatedCalories)}
+                                  </p>
+                                ) : null}
                               </div>
                               <button
                                 type="button"
@@ -1162,6 +1184,11 @@ function App() {
                                   ) : null}
                                 </span>
                               </h3>
+                              {formatEstimatedCaloriesLabel(entry.estimatedCalories) ? (
+                                <p className="menu-app__estimated-calories">
+                                  {formatEstimatedCaloriesLabel(entry.estimatedCalories)}
+                                </p>
+                              ) : null}
                               <time
                                 className="menu-app__history-time"
                                 dateTime={entry.favoritedAt}
@@ -1180,6 +1207,7 @@ function App() {
                                   handleFavoriteToggleClick(event, {
                                     ingredientText: entry.ingredientText,
                                     dishTitle: entry.dishTitle,
+                                    estimatedCalories: entry.estimatedCalories,
                                     recipe: entry.recipe,
                                     usedIngredients: entry.usedIngredients,
                                     servings: entry.servings,

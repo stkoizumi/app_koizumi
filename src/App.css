@@ -369,8 +369,9 @@
 .menu-app__error {
   display: flex;
   gap: 0.65rem;
-  align-items: flex-start;
-  margin: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
   padding: 0.75rem 0.9rem;
   background: rgba(255, 236, 236, 0.95);
   border: 1px solid rgba(200, 80, 80, 0.25);
@@ -398,6 +399,7 @@
   font-size: 0.88rem;
   line-height: 1.45;
   flex: 1;
+  text-align: center;
 }
 
 .menu-app__error--non-food {
@@ -635,6 +637,13 @@
   color: var(--color-primary-deep);
   background: rgba(122, 158, 126, 0.14);
   border-radius: 999px;
+}
+
+.menu-app__estimated-calories {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: rgba(62, 58, 53, 0.62);
 }
 
 .menu-app__history-meta {
